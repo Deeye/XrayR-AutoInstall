@@ -125,15 +125,16 @@ EOF
     systemctl daemon-reload
     systemctl enable xrayr >/dev/null 2>&1
     
+    # 核心常驻：将脚本本体拷贝至环境变量，并同时创建大小写两条软链接快捷键
     cp -f "$0" ${SYSTEM_CMD_PATH} >/dev/null 2>&1
     chmod +x ${SYSTEM_CMD_PATH}
     ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
 
-    type_effect "${GREEN}✔ 开机自启常驻与环境快捷指令 [xrayr] 绑定成功。${PLAIN}"
+    type_effect "${GREEN}✔ 开机自启常驻与系统快捷指令 [xrayr / XrayR] 绑定成功。${PLAIN}"
     echo ""
     show_line
     echo -e " 🎉 ${BOLD}恭喜您！XrayR 核心程序安装/更新成功！${PLAIN}"
-    echo -e " ⚡ ${BLUE}以后在任何路径下，只需输入: ${YELLOW}xrayr${BLUE} 即可唤醒本管理面板！${PLAIN}"
+    echo -e " ⚡ ${BLUE}以后在任何路径下，只需输入: ${YELLOW}xrayr${BLUE} 或者是 ${YELLOW}XrayR${BLUE} 即可唤醒本管理面板！${PLAIN}"
     show_line
     echo ""
     read -p "是否现在进入控制面板菜单？(y/n): " choice
@@ -208,7 +209,7 @@ show_manage_menu() {
                 ;;
             2)
                 systemctl stop xrayr
-                echo -e "${GREEN}停止指令已发出. ${PLAIN}"
+                echo -e "${GREEN}停止指令已发出。${PLAIN}"
                 sleep 1.5
                 ;;
             3)
@@ -268,8 +269,8 @@ show_manage_menu() {
     done
 }
 
-# 判断唤醒源
-if [[ "$0" == "${SYSTEM_CMD_PATH}" || "$1" == "menu" ]]; then
+# 核心判断机制：支持大小写环境变量唤醒，或者直接运行脚本唤醒
+if [[ "$0" == "${SYSTEM_CMD_PATH}" || "$0" == "/usr/local/bin/XrayR" || "$1" == "menu" ]]; then
     show_manage_menu
 else
     show_install_process
