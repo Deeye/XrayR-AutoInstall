@@ -125,7 +125,7 @@ EOF
     systemctl daemon-reload
     systemctl enable xrayr >/dev/null 2>&1
     
-    # 终极修复：直接从云端强制拉取最新脚本作为系统命令，彻底断绝幻影复制 BUG
+    # 终极修复：直接从云端强制拉取最新脚本作为系统命令
     curl -Ls "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > ${SYSTEM_CMD_PATH}
     chmod +x ${SYSTEM_CMD_PATH}
     ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
@@ -269,10 +269,28 @@ show_manage_menu() {
     done
 }
 
-# 终极修复：使用 basename 判断，无视执行路径，完美匹配大小写
+# 核心判断机制：环境嗅探装甲
 SCRIPT_NAME=$(basename "$0")
+# 如果用户输入的是 xrayr 或 XrayR，直接进入菜单
 if [[ "$SCRIPT_NAME" == "xrayr" || "$SCRIPT_NAME" == "XrayR" || "$1" == "menu" ]]; then
     show_manage_menu
 else
-    show_install_process
+    # 如果用户跑的是一键安装脚本，先嗅探系统里是否已经装过
+    if [[ -f "${SYSTEM_CMD_PATH}" && -d "${INSTALL_DIR}" ]]; then
+        show_banner
+        echo -e "${YELLOW}⚠️ 检测到您的服务器已安装 XrayR 核心程序！${PLAIN}"
+        echo -e "${GREEN}为了防止您的配置文件和运行状态被意外覆盖，已自动拦截重复安装请求。${PLAIN}"
+        echo -e "👉 如果您想管理节点或更新版本，请直接在终端随时输入命令: ${BOLD}xrayr${PLAIN}"
+        echo ""
+        read -p "是否现在直接进入控制面板？(y/n): " enter_menu
+        if [[ "$enter_menu" == "y" || "$enter_menu" == "Y" ]]; then
+            show_manage_menu
+        else
+            echo -e "${GREEN}已安全退出。${PLAIN}"
+            exit 0
+        fi
+    else
+        # 确实没装过，放行执行全新安装流程
+        show_install_process
+    fi
 fi
