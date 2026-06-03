@@ -125,8 +125,8 @@ EOF
     systemctl daemon-reload
     systemctl enable xrayr >/dev/null 2>&1
     
-    # 核心常驻：将脚本本体拷贝至环境变量，并同时创建大小写两条软链接快捷键
-    cp -f "$0" ${SYSTEM_CMD_PATH} >/dev/null 2>&1
+    # 终极修复：直接从云端强制拉取最新脚本作为系统命令，彻底断绝幻影复制 BUG
+    curl -Ls "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > ${SYSTEM_CMD_PATH}
     chmod +x ${SYSTEM_CMD_PATH}
     ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
 
@@ -269,8 +269,9 @@ show_manage_menu() {
     done
 }
 
-# 核心判断机制：支持大小写环境变量唤醒，或者直接运行脚本唤醒
-if [[ "$0" == "${SYSTEM_CMD_PATH}" || "$0" == "/usr/local/bin/XrayR" || "$1" == "menu" ]]; then
+# 终极修复：使用 basename 判断，无视执行路径，完美匹配大小写
+SCRIPT_NAME=$(basename "$0")
+if [[ "$SCRIPT_NAME" == "xrayr" || "$SCRIPT_NAME" == "XrayR" || "$1" == "menu" ]]; then
     show_manage_menu
 else
     show_install_process
