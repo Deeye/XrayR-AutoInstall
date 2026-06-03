@@ -31,8 +31,7 @@ A Xray backend framework that can easily support many panels.
 在任何支持 Systemd 的 Linux 系统（推荐使用 Ubuntu / Debian / CentOS）上，直接复制并运行以下命令，即可进入全自动纯净安装流程：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/Deeye/XrayR-AutoInstall/main/install.sh | sed 's/\r$//')
-
+wget -N --no-check-certificate -O install.sh https://raw.githubusercontent.com/Deeye/XrayR-AutoInstall/main/install.sh && sed -i 's/\r$//' install.sh && chmod +x install.sh && ./install.sh
 ```
 
 ---
