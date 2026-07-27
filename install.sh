@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (精简高效版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (防 OOM 内存优化版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -24,12 +24,13 @@ GITHUB_USER="Deeye"
 REPO_NAME="XrayR-AutoInstall"
 RELEASE_VERSION="v1.0.0"
 SYSTEM_CMD_PATH="/usr/local/bin/xrayr"
-BACKUP_CONFIG="/tmp/xrayr_config_bak.yml"
 
-# 动态路径变量
+# 动态路径变量（已全部切换至磁盘路径，避免 tmpfs 内存盘触发 OOM）
 CONFIG_DIR="/etc/XrayR"
 BINARY_PATH=""
 IS_NAT=false
+BACKUP_CONFIG="${CONFIG_DIR}/xrayr_config_bak.yml"
+TEMP_DIR="${CONFIG_DIR}/xrayr_install_tmp"
 
 # 统计安装与下载次数配置 (初始值 6856)
 INITIAL_COUNT=6856
@@ -80,7 +81,6 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 可视化 NAT 环境嗅探
 detect_environment() {
     echo -e "${BLUE}🌐 正在探测服务器网络架构与虚拟化层级...${PLAIN}"
     local local_ip=""
@@ -201,7 +201,6 @@ show_install_process() {
     echo -e "${BLUE}🌐 正在从 GitHub 官方仓库下载主程序 (架构: ${ARCH})...${PLAIN}"
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
-    TEMP_DIR="/tmp/xrayr_install_tmp"
     rm -rf ${TEMP_DIR}
     mkdir -p ${TEMP_DIR}
     cd ${TEMP_DIR}
@@ -212,7 +211,7 @@ show_install_process() {
         exit 1
     fi
 
-    echo -e "${BLUE}📦 正在安全解压程序压缩包...${PLAIN}"
+    echo -e "${BLUE}📦 正在安全解压程序压缩包 (使用磁盘缓存防 OOM)...${PLAIN}"
     unzip -q -o XrayR.zip
     if [[ ! -f "XrayR" ]]; then
         echo -e "${RED}[错误] 解压未找到主程序文件。${PLAIN}"
@@ -274,14 +273,15 @@ EOF
     srv_enable
     
     echo -e "${BLUE}🔗 正在配置全局快捷管理指令 (xrayr)...${PLAIN}"
-    if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
-        if [[ -s "/tmp/xrayr_temp.sh" ]]; then
-            mv -f "/tmp/xrayr_temp.sh" ${SYSTEM_CMD_PATH}
+    local temp_script="${CONFIG_DIR}/xrayr_temp.sh"
+    if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "${temp_script}"; then
+        if [[ -s "${temp_script}" ]]; then
+            mv -f "${temp_script}" ${SYSTEM_CMD_PATH}
             chmod +x ${SYSTEM_CMD_PATH}
             ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
         fi
     fi
-    rm -f "/tmp/xrayr_temp.sh"
+    rm -f "${temp_script}"
 
     show_line
     echo -e "${GREEN}${BOLD}🎉 XrayR 安装与部署全部成功完成！${PLAIN}"
