@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (统计与NAT自适应版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (优雅可视化自适应版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -31,22 +31,6 @@ CONFIG_DIR="/etc/XrayR"
 BINARY_PATH=""
 IS_NAT=false
 
-# 统计安装与下载次数配置 (初始值 6856)
-INITIAL_COUNT=6856
-INSTALL_COUNT=${INITIAL_COUNT}
-
-fetch_install_count() {
-    # 尝试从远程计数接口获取最新数据（如无网络或接口未配置则自动使用初始基数）
-    local remote_count
-    remote_count=$(curl -s --max-time 2 "https://api.countapi.xyz/hit/Deeye-XrayR-AutoInstall/visits" 2>/dev/null | grep -o '"value":[^,]*' | awk -F: '{print $2}')
-    if [[ -n "$remote_count" && "$remote_count" -gt 0 ]]; then
-        INSTALL_COUNT=$((INITIAL_COUNT + remote_count))
-    else
-        INSTALL_COUNT=${INITIAL_COUNT}
-    fi
-}
-fetch_install_count
-
 type_effect() {
     local text="$1"
     local delay=0.003
@@ -72,7 +56,6 @@ show_banner() {
     show_line
     echo -e " 🚀 ${BOLD}XrayR 智能可视化控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
     echo -e " 📂 ${YELLOW}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${PLAIN}"
-    echo -e " 📊 ${CYAN}全球累计安装下载次数: ${BOLD}${GREEN}${INSTALL_COUNT}${PLAIN} 次"
     show_line
 }
 
