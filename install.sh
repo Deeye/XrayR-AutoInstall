@@ -2,7 +2,7 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 (NAT & VPS 全面优化版)
+# XrayR 智能安装与管理脚本
 # 版本: v1.0.2
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
