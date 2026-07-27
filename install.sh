@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (精简输出静默检测版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (优雅可视化自适应版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -33,7 +33,7 @@ IS_NAT=false
 
 type_effect() {
     local text="$1"
-    local delay=0.005
+    local delay=0.003
     for (( i=0; i<${#text}; i++ )); do
         echo -n "${text:$i:1}"
         sleep $delay
@@ -54,7 +54,7 @@ show_banner() {
     echo -e "${GREEN}██╔╝ ██╗██║  ██║██║  ██║   ██║   ██║  ██║    ██║  ██║${PLAIN}"
     echo -e "${GREEN}╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝${PLAIN}"
     show_line
-    echo -e " 🚀 ${BOLD}XrayR 智能NAT自适应控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
+    echo -e " 🚀 ${BOLD}XrayR 智能可视化控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
     echo -e " 📂 ${YELLOW}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${PLAIN}"
     show_line
 }
@@ -64,22 +64,28 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 静默内存检查与 Swap 构建（隐藏冗长输出）
+# 可视化内存自检与 Swap 构建
 check_and_fix_memory() {
     local total_mem
     total_mem=$(free -m | awk '/Mem:/ {print $2}')
+    echo -e "${BLUE}🔍 内存环境分析: 检测到系统物理内存为 ${BOLD}${total_mem}MB${PLAIN}"
     if [[ -n "$total_mem" && "$total_mem" -lt 300 ]]; then
+        echo -e "${YELLOW}⚠️ 物理内存低于 300MB，正在启用低配保护：创建 1GB 临时虚拟内存 (Swap)...${PLAIN}"
         if ! grep -q "swap" /proc/swaps; then
             fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 2>/dev/null
             chmod 600 /swapfile
             mkswap /swapfile >/dev/null 2>&1
             swapon /swapfile >/dev/null 2>&1
+            echo -e "${GREEN}✔ 临时虚拟内存挂载成功，当前 OOM 崩溃风险已解除。${PLAIN}"
         fi
+    else
+        echo -e "${GREEN}✔ 内存资源充足，跳过虚拟内存扩展。${PLAIN}"
     fi
 }
 
-# 静默 NAT 环境检测（隐藏冗长输出）
+# 可视化 NAT 环境嗅探
 detect_environment() {
+    echo -e "${BLUE}🌐 正在探测服务器网络架构与虚拟化层级...${PLAIN}"
     local local_ip=""
     local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7;exit}')
     if [[ -z "$local_ip" ]]; then
@@ -96,11 +102,17 @@ detect_environment() {
         fi
     fi
 
+    show_line
     if [[ "$IS_NAT" == "true" ]]; then
+        echo -e " 💻 架构判定: ${YELLOW}${BOLD}NAT / 内网虚拟化环境${PLAIN}"
+        echo -e " 🛠️ 部署模式: ${CYAN}二进制与配置分离模式${PLAIN} (主程序独立至 /usr/local/bin)"
         BINARY_PATH="/usr/local/bin/xrayr-core"
     else
+        echo -e " 💻 架构判定: ${GREEN}${BOLD}独立公网服务器${PLAIN}"
+        echo -e " 🛠️ 部署模式: ${CYAN}标准一体化模式${PLAIN} (程序与配置集中于 /etc/XrayR)"
         BINARY_PATH="${CONFIG_DIR}/XrayR"
     fi
+    show_line
 }
 
 INIT_SYSTEM=""
@@ -114,7 +126,9 @@ check_init_system() {
         exit 1
     fi
 }
+
 check_init_system
+show_banner
 detect_environment
 
 srv_start() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl start xrayr || rc-service xrayr start >/dev/null 2>&1; }
@@ -144,13 +158,12 @@ get_architecture() {
 }
 
 install_dependencies() {
-    type_effect "${BLUE}➜ 正在检查系统基础运行环境...${PLAIN}"
+    echo -e "${BLUE}📦 正在检查并补齐核心依赖组件 (curl/wget/unzip)...${PLAIN}"
     if command -v curl >/dev/null 2>&1 && command -v wget >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
-        type_effect "${GREEN}✔ 基础依赖已就绪。${PLAIN}"
+        echo -e "${GREEN}✔ 基础依赖工具已全部就绪。${PLAIN}"
         return 0
     fi
 
-    type_effect "${YELLOW}➜ 正在同步缺失的基础运行工具...${PLAIN}"
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq >/dev/null 2>&1
@@ -163,24 +176,33 @@ install_dependencies() {
         apk update -q >/dev/null 2>&1
         apk add --no-cache curl wget unzip ca-certificates bash openrc file gcompat libc6-compat >/dev/null 2>&1
     fi
+    echo -e "${GREEN}✔ 依赖组件安装完成。${PLAIN}"
 }
 
 show_install_process() {
     show_banner
-    type_effect "${YELLOW}[1/4] 🚀 正在初始化系统运行环境...${PLAIN}"
+    echo -e " ${BOLD}[步骤 1/4] 初始化运行环境与防崩溃保护${PLAIN}"
+    show_line
     check_and_fix_memory
     install_dependencies
-    
-    type_effect "${YELLOW}\n[2/4] 📂 正在安全构建配置目录 ${CONFIG_DIR} ...${PLAIN}"
+    echo ""
+
+    echo -e " ${BOLD}[步骤 2/4] 构建配置目录与备份${PLAIN}"
+    show_line
+    echo -e "${BLUE}📂 正在创建配置目录: ${CONFIG_DIR}${PLAIN}"
     mkdir -p ${CONFIG_DIR}
     if [ -f "${CONFIG_DIR}/config.yml" ]; then
+        echo -e "${YELLOW}⚠️ 检测到已有配置文件，正在安全备份...${PLAIN}"
         cp -f ${CONFIG_DIR}/config.yml ${BACKUP_CONFIG}
     fi
-    
     srv_stop 2>/dev/null || true
+    echo -e "${GREEN}✔ 目录构建与备份完成。${PLAIN}"
+    echo ""
 
-    type_effect "${YELLOW}\n[3/4] 🌐 正在拉取核心二进制主程序...${PLAIN}"
+    echo -e " ${BOLD}[步骤 3/4] 拉取核心程序与兼容性自检${PLAIN}"
+    show_line
     ARCH=$(get_architecture)
+    echo -e "${BLUE}🌐 正在从 GitHub 官方仓库下载主程序 (架构: ${ARCH})...${PLAIN}"
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
     TEMP_DIR="/tmp/xrayr_install_tmp"
@@ -189,11 +211,12 @@ show_install_process() {
     cd ${TEMP_DIR}
 
     if ! wget -t 3 -T 15 -q --no-check-certificate -O XrayR.zip "${RAW_URL}"; then
-        echo -e "${RED}[错误] 下载失败，请检查网络。${PLAIN}"
+        echo -e "${RED}[错误] 下载核心程序失败，请检查网络连接。${PLAIN}"
         rm -rf ${TEMP_DIR}
         exit 1
     fi
 
+    echo -e "${BLUE}📦 正在安全解压程序压缩包...${PLAIN}"
     unzip -q -o XrayR.zip
     if [[ ! -f "XrayR" ]]; then
         echo -e "${RED}[错误] 解压未找到主程序文件。${PLAIN}"
@@ -202,36 +225,40 @@ show_install_process() {
     fi
 
     chmod +x XrayR
-
     if [[ "$IS_NAT" == "true" ]]; then
         mv -f XrayR ${BINARY_PATH}
+        echo -e "${GREEN}✔ 主程序已安全部署至分离区: ${BINARY_PATH}${PLAIN}"
     else
         mv -f XrayR ${CONFIG_DIR}/XrayR
+        echo -e "${GREEN}✔ 主程序已部署至: ${CONFIG_DIR}/XrayR${PLAIN}"
     fi
     rm -rf ${TEMP_DIR}
 
-    type_effect "${BLUE}➜ 正在执行程序兼容性自检...${PLAIN}"
+    echo -e "${BLUE}🔬 正在执行二进制程序自检...${PLAIN}"
     ${BINARY_PATH} --version || ${BINARY_PATH} -version
     local exec_status=$?
 
     if [ ${exec_status} -ne 0 ]; then
-        echo -e "\n${RED}[严重错误] 二进制程序执行失败，退出状态码: ${exec_status}${PLAIN}"
+        echo -e "${RED}[严重错误] 二进制程序执行失败，退出状态码: ${exec_status}${PLAIN}"
         exit 1
     fi
-    type_effect "${GREEN}✔ 二进制自检通过！${PLAIN}"
+    echo -e "${GREEN}✔ 二进制自检通过，运行状态正常。${PLAIN}"
 
     if [ -f "${BACKUP_CONFIG}" ]; then
         mv -f ${BACKUP_CONFIG} ${CONFIG_DIR}/config.yml
+        echo -e "${GREEN}✔ 已成功恢复原有配置文件。${PLAIN}"
         rm -f ${BACKUP_CONFIG}
     fi
     [[ -f "${CONFIG_DIR}/config.yml" ]] && chmod 600 ${CONFIG_DIR}/config.yml
+    echo ""
 
-    type_effect "${YELLOW}\n[4/4] ⚙️ 正在向 [${INIT_SYSTEM^^}] 守护进程注册服务...${PLAIN}"
-    
+    echo -e " ${BOLD}[步骤 4/4] 注册系统守护进程与快捷指令${PLAIN}"
+    show_line
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        echo -e "${BLUE}⚙️ 正在生成 systemd 服务配置文件...${PLAIN}"
         cat > /etc/systemd/system/xrayr.service <<EOF
 [Unit]
-Description=XrayR Backend Service (Silent Optimized Edition)
+Description=XrayR Backend Service (Optimized Aesthetic Edition)
 After=network.target nss-lookup.target
 
 [Service]
@@ -249,7 +276,8 @@ EOF
     fi
 
     srv_enable
-     
+    
+    echo -e "${BLUE}🔗 正在配置全局快捷管理指令 (xrayr)...${PLAIN}"
     if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
         if [[ -s "/tmp/xrayr_temp.sh" ]]; then
             mv -f "/tmp/xrayr_temp.sh" ${SYSTEM_CMD_PATH}
@@ -259,7 +287,11 @@ EOF
     fi
     rm -f "/tmp/xrayr_temp.sh"
 
-    type_effect "${GREEN}✔ 安装成功！输入 xrayr 即可管理。${PLAIN}"
+    show_line
+    echo -e "${GREEN}${BOLD}🎉 XrayR 安装与部署全部成功完成！${PLAIN}"
+    echo -e "${CYAN}💡 提示: 随时在终端输入命令 ${BOLD}xrayr${PLAIN}${CYAN} 即可呼出管理面板。${PLAIN}"
+    show_line
+    sleep 2
     show_manage_menu
 }
 
