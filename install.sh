@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 
-# 版本: v1.0.1
+# XrayR 智能安装与管理脚本 (NAT & VPS 全面优化版)
+# 版本: v1.0.2
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -25,7 +25,6 @@ BACKUP_CONFIG="${CONFIG_DIR}/xrayr_config_bak.yml"
 TEMP_DIR="${CONFIG_DIR}/.xrayr_install_tmp"
 
 IS_NAT=false
-PUBLIC_IP_OR_DOMAIN=""
 INIT_SYSTEM=""
 BINARY_PATH=""
 
@@ -52,8 +51,8 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (NAT/VPS 优化版)              ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 简洁 · 高效 · NAT 深度兼容${RESET}                       ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (NAT & VPS 兼容版)             ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 简洁 · 高效 · 自动部署${RESET}                         ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -203,13 +202,19 @@ srv_logs() {
 }
 
 # -----------------------------
-# 环境检测 (NAT 优化增强)
+# 环境检测
 # -----------------------------
 get_architecture() {
     case "$(uname -m)" in
-        x86_64|amd64) echo "64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        armv7l|armv6l) echo "arm" ;;
+        x86_64|amd64)
+            echo "64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
+        armv7l|armv6l)
+            echo "arm"
+            ;;
         *)
             status_error "不支持的 CPU 架构: $(uname -m)"
             exit 1
@@ -218,7 +223,7 @@ get_architecture() {
 }
 
 detect_environment() {
-    section_title "环境检测" "智能识别 NAT 与独立公网服务器环境"
+    section_title "环境检测" "识别网络环境与部署方式"
 
     local local_ip=""
     local public_ip=""
@@ -226,15 +231,16 @@ detect_environment() {
     if command -v ip >/dev/null 2>&1; then
         local_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"
     fi
-    [[ -z "${local_ip}" ]] && local_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 
-    # 更加精准的 NAT 检测逻辑
+    if [[ -z "${local_ip}" ]]; then
+        local_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    fi
+
     if [[ "${local_ip}" =~ ^10\. ]] ||
        [[ "${local_ip}" =~ ^192\.168\. ]] ||
        [[ "${local_ip}" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
         IS_NAT=true
     else
-        # 尝试获取公网 IP，带超时防卡死
         public_ip="$(curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
         if [[ -n "${local_ip}" && -n "${public_ip}" && "${local_ip}" != "${public_ip}" ]]; then
             IS_NAT=true
@@ -242,18 +248,12 @@ detect_environment() {
     fi
 
     if [[ "${IS_NAT}" == "true" ]]; then
-        printf '%b\n' "  ${YELLOW}●${RESET} 网络环境  ${BOLD}NAT / 内网环境 (启用端口转发与核心分离兼容)${RESET}"
-        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  二进制与配置分离路径"
+        printf '%b\n' "  ${YELLOW}●${RESET} 网络环境  ${BOLD}NAT / 内网环境${RESET}"
+        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  二进制与配置分离"
         BINARY_PATH="${NAT_BINARY_PATH}"
-        
-        # 提示 NAT 用户注意点
-        echo
-        status_warn "检测到当前为 NAT 机器："
-        echo -e "  ${DIM}1. 节点对接面板时，API 监听地址请填内网IP，通信端口请务必填服务商分配的【外部端口】。${RESET}"
-        echo -e "  ${DIM}2. 小内存 NAT 建议合理规划连接数，防范 OOM。${RESET}"
     else
-        printf '%b\n' "  ${GREEN}●${RESET} 网络环境  ${BOLD}独立公网服务器 (Standard VPS)${RESET}"
-        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  标准独立部署"
+        printf '%b\n' "  ${GREEN}●${RESET} 网络环境  ${BOLD}独立公网服务器${RESET}"
+        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  标准部署"
         BINARY_PATH="${CONFIG_DIR}/XrayR"
     fi
 
@@ -293,30 +293,33 @@ install_dependencies() {
 }
 
 # -----------------------------
-# 资源检查（针对低内存 NAT 优化）
+# 安全资源检查
 # -----------------------------
 check_resources() {
     local available_mem_kb=0
     local available_disk_kb=0
 
     if [[ -r /proc/meminfo ]]; then
-        available_mem_kb="$(awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo)"
+        available_mem_kb="$(awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo || true)"
+        if [[ -z "${available_mem_kb}" ]]; then
+            available_mem_kb="$(awk '/MemFree:/ {print $2; exit}' /proc/meminfo || true)"
+        fi
     fi
 
     available_disk_kb="$(df -Pk "${TEMP_DIR}" | awk 'NR==2 {print $4}')"
 
-    if [[ "${available_mem_kb:-0}" =~ ^[0-9]+$ ]]; then
+    if [[ "${available_mem_kb:-0}" =~ ^[0-9]+$ ]] && (( available_mem_kb > 0 )); then
         if (( available_mem_kb < 65536 )); then
-            status_warn "当前可用内存极低: $(( available_mem_kb / 1024 )) MB"
-            status_warn "低内存 NAT VPS 极易触发宿主机 OOM，建议配置 Swap 虚拟内存以保证平稳运行"
+            status_warn "当前可用内存较低: ${available_mem_kb} KB"
+            status_warn "低内存 NAT VPS 可能被宿主机 OOM 机制重启"
         else
-            status_ok "可用内存检查通过 ($(( available_mem_kb / 1024 )) MB)"
+            status_ok "可用内存检查通过"
         fi
     fi
 
     if [[ "${available_disk_kb:-0}" =~ ^[0-9]+$ ]]; then
         if (( available_disk_kb < 131072 )); then
-            status_error "临时目录可用磁盘空间不足 (<128MB)"
+            status_error "临时目录可用磁盘空间不足"
             exit 1
         else
             status_ok "可用磁盘空间检查通过"
@@ -377,12 +380,14 @@ download_and_extract() {
 }
 
 # -----------------------------
-# 二进制自检
+# 二进制自检 (修复版本指令兼容)
 # -----------------------------
 check_binary() {
     printf '%b\n' "  ${BLUE}▸${RESET} 执行核心程序自检"
 
-    if "${BINARY_PATH}" --version >/dev/null 2>&1 ||
+    # XrayR 的正确版本检查方式为子命令: XrayR version
+    if "${BINARY_PATH}" version >/dev/null 2>&1 || \
+       "${BINARY_PATH}" --version >/dev/null 2>&1 || \
        "${BINARY_PATH}" -version >/dev/null 2>&1; then
         status_ok "核心程序自检通过"
     else
@@ -392,7 +397,7 @@ check_binary() {
 }
 
 # -----------------------------
-# 服务注册 (适配 NAT 资源限制)
+# 服务注册
 # -----------------------------
 register_service() {
     section_title "注册系统服务" "配置开机启动与后台运行"
@@ -409,19 +414,16 @@ Type=simple
 User=root
 WorkingDirectory=${CONFIG_DIR}
 ExecStart=${BINARY_PATH} --config ${CONFIG_DIR}/config.yml
-Restart=always
+Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65535
-# 针对 NAT 机器增加适当的内存安全限制（防止独占耗尽宿主机资源）
-MemoryAccounting=true
-CPUAccounting=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
         systemctl daemon-reload
-        status_ok "systemd 服务已注册 (已优化重启与资源统计策略)"
+        status_ok "systemd 服务已注册"
     else
         cat > /etc/init.d/xrayr <<EOF
 #!/sbin/openrc-run
