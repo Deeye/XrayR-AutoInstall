@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (防 OOM 内存优化版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
 
-set -u
+set -eu
 
 # 霓虹极客配色定义
 RED='\033[0;31m'
@@ -25,12 +25,18 @@ REPO_NAME="XrayR-AutoInstall"
 RELEASE_VERSION="v1.0.0"
 SYSTEM_CMD_PATH="/usr/local/bin/xrayr"
 
-# 动态路径变量（已全部切换至磁盘路径，避免 tmpfs 内存盘触发 OOM）
+# 动态路径变量
 CONFIG_DIR="/etc/XrayR"
 BINARY_PATH=""
 IS_NAT=false
 BACKUP_CONFIG="${CONFIG_DIR}/xrayr_config_bak.yml"
 TEMP_DIR="${CONFIG_DIR}/xrayr_install_tmp"
+
+# 异常退出与清理钩子
+cleanup() {
+    rm -rf "${TEMP_DIR}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # 统计安装与下载次数配置 (初始值 6856)
 INITIAL_COUNT=6856
@@ -38,24 +44,14 @@ INSTALL_COUNT=${INITIAL_COUNT}
 
 fetch_install_count() {
     local remote_count
-    remote_count=$(curl -s --max-time 2 "https://api.countapi.xyz/hit/Deeye-XrayR-AutoInstall/visits" 2>/dev/null | grep -o '"value":[^,]*' | awk -F: '{print $2}')
-    if [[ -n "$remote_count" && "$remote_count" -gt 0 ]]; then
+    remote_count=$(curl -s --max-time 2 "https://api.countapi.xyz/hit/Deeye-XrayR-AutoInstall/visits" 2>/dev/null | grep -o '"value":[^,]*' | awk -F: '{print $2}' || true)
+    if [[ -n "${remote_count:-}" && "$remote_count" -gt 0 ]]; then
         INSTALL_COUNT=$((INITIAL_COUNT + remote_count))
     else
         INSTALL_COUNT=${INITIAL_COUNT}
     fi
 }
 fetch_install_count
-
-type_effect() {
-    local text="$1"
-    local delay=0.003
-    for (( i=0; i<${#text}; i++ )); do
-        echo -n "${text:$i:1}"
-        sleep $delay
-    done
-    echo ""
-}
 
 show_line() {
     echo -e "${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${PLAIN}"
@@ -84,17 +80,17 @@ fi
 detect_environment() {
     echo -e "${BLUE}🌐 正在探测服务器网络架构与虚拟化层级...${PLAIN}"
     local local_ip=""
-    local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7;exit}')
-    if [[ -z "$local_ip" ]]; then
-        local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7;exit}' || true)
+    if [[ -z "${local_ip:-}" ]]; then
+        local_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
     fi
 
-    if [[ "$local_ip" =~ ^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\. ]]; then
+    if [[ "${local_ip:-}" =~ ^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\. ]]; then
         IS_NAT=true
     else
         local pub_ip=""
-        pub_ip=$(curl -s --max-time 3 https://ipv4.icanhazip.com 2>/dev/null)
-        if [[ -n "$pub_ip" && -n "$local_ip" && "$local_ip" != "$pub_ip" ]]; then
+        pub_ip=$(curl -s --max-time 3 https://ipv4.icanhazip.com 2>/dev/null || true)
+        if [[ -n "${pub_ip:-}" && -n "${local_ip:-}" && "$local_ip" != "$pub_ip" ]]; then
             IS_NAT=true
         fi
     fi
@@ -201,13 +197,11 @@ show_install_process() {
     echo -e "${BLUE}🌐 正在从 GitHub 官方仓库下载主程序 (架构: ${ARCH})...${PLAIN}"
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
-    rm -rf ${TEMP_DIR}
     mkdir -p ${TEMP_DIR}
     cd ${TEMP_DIR}
 
     if ! wget -t 3 -T 15 -q --no-check-certificate -O XrayR.zip "${RAW_URL}"; then
         echo -e "${RED}[错误] 下载核心程序失败，请检查网络连接。${PLAIN}"
-        rm -rf ${TEMP_DIR}
         exit 1
     fi
 
@@ -215,7 +209,6 @@ show_install_process() {
     unzip -q -o XrayR.zip
     if [[ ! -f "XrayR" ]]; then
         echo -e "${RED}[错误] 解压未找到主程序文件。${PLAIN}"
-        rm -rf ${TEMP_DIR}
         exit 1
     fi
 
@@ -227,7 +220,6 @@ show_install_process() {
         mv -f XrayR ${CONFIG_DIR}/XrayR
         echo -e "${GREEN}✔ 主程序已部署至: ${CONFIG_DIR}/XrayR${PLAIN}"
     fi
-    rm -rf ${TEMP_DIR}
 
     echo -e "${BLUE}🔬 正在执行二进制程序自检...${PLAIN}"
     ${BINARY_PATH} --version || ${BINARY_PATH} -version
@@ -242,7 +234,6 @@ show_install_process() {
     if [ -f "${BACKUP_CONFIG}" ]; then
         mv -f ${BACKUP_CONFIG} ${CONFIG_DIR}/config.yml
         echo -e "${GREEN}✔ 已成功恢复原有配置文件。${PLAIN}"
-        rm -f ${BACKUP_CONFIG}
     fi
     [[ -f "${CONFIG_DIR}/config.yml" ]] && chmod 600 ${CONFIG_DIR}/config.yml
     echo ""
@@ -274,7 +265,7 @@ EOF
     
     echo -e "${BLUE}🔗 正在配置全局快捷管理指令 (xrayr)...${PLAIN}"
     local temp_script="${CONFIG_DIR}/xrayr_temp.sh"
-    if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "${temp_script}"; then
+    if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "${temp_script}" 2>/dev/null; then
         if [[ -s "${temp_script}" ]]; then
             mv -f "${temp_script}" ${SYSTEM_CMD_PATH}
             chmod +x ${SYSTEM_CMD_PATH}
