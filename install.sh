@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (NAT智能自适应版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (精简输出静默检测版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -26,7 +26,7 @@ RELEASE_VERSION="v1.0.0"
 SYSTEM_CMD_PATH="/usr/local/bin/xrayr"
 BACKUP_CONFIG="/tmp/xrayr_config_bak.yml"
 
-# 动态路径变量（后续由 NAT 检测结果动态赋值）
+# 动态路径变量
 CONFIG_DIR="/etc/XrayR"
 BINARY_PATH=""
 IS_NAT=false
@@ -64,16 +64,28 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 智能 NAT 检测核心函数
+# 静默内存检查与 Swap 构建（隐藏冗长输出）
+check_and_fix_memory() {
+    local total_mem
+    total_mem=$(free -m | awk '/Mem:/ {print $2}')
+    if [[ -n "$total_mem" && "$total_mem" -lt 300 ]]; then
+        if ! grep -q "swap" /proc/swaps; then
+            fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 2>/dev/null
+            chmod 600 /swapfile
+            mkswap /swapfile >/dev/null 2>&1
+            swapon /swapfile >/dev/null 2>&1
+        fi
+    fi
+}
+
+# 静默 NAT 环境检测（隐藏冗长输出）
 detect_environment() {
-    type_effect "${BLUE}➜ 正在智能嗅探当前服务器网络与虚拟化架构...${PLAIN}"
     local local_ip=""
     local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7;exit}')
     if [[ -z "$local_ip" ]]; then
         local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     fi
 
-    # 检查内网私有 IP 网段
     if [[ "$local_ip" =~ ^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\. ]]; then
         IS_NAT=true
     else
@@ -84,14 +96,9 @@ detect_environment() {
         fi
     fi
 
-    # 根据检测结果动态划分安装策略路径
     if [[ "$IS_NAT" == "true" ]]; then
-        type_effect "${YELLOW}✔ 环境判定: ${BOLD}NAT 机器 / 内网虚拟化环境${PLAIN}"
-        type_effect "${CYAN}➜ 采取策略: 启用【二进制与配置分离安装模式】，规避 /etc 目录执行限制。${PLAIN}"
         BINARY_PATH="/usr/local/bin/xrayr-core"
     else
-        type_effect "${GREEN}✔ 环境判定: ${BOLD}普通独立公网机器${PLAIN}"
-        type_effect "${CYAN}➜ 采取策略: 启用【标准一体化安装模式】，程序与配置集中于 /etc/XrayR。${PLAIN}"
         BINARY_PATH="${CONFIG_DIR}/XrayR"
     fi
 }
@@ -161,6 +168,7 @@ install_dependencies() {
 show_install_process() {
     show_banner
     type_effect "${YELLOW}[1/4] 🚀 正在初始化系统运行环境...${PLAIN}"
+    check_and_fix_memory
     install_dependencies
     
     type_effect "${YELLOW}\n[2/4] 📂 正在安全构建配置目录 ${CONFIG_DIR} ...${PLAIN}"
@@ -195,7 +203,6 @@ show_install_process() {
 
     chmod +x XrayR
 
-    # 根据 NAT 判定结果落地到对应目录
     if [[ "$IS_NAT" == "true" ]]; then
         mv -f XrayR ${BINARY_PATH}
     else
@@ -224,7 +231,7 @@ show_install_process() {
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
         cat > /etc/systemd/system/xrayr.service <<EOF
 [Unit]
-Description=XrayR Backend Service (Adaptive Mode)
+Description=XrayR Backend Service (Silent Optimized Edition)
 After=network.target nss-lookup.target
 
 [Service]
@@ -242,7 +249,7 @@ EOF
     fi
 
     srv_enable
-    
+     
     if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
         if [[ -s "/tmp/xrayr_temp.sh" ]]; then
             mv -f "/tmp/xrayr_temp.sh" ${SYSTEM_CMD_PATH}
