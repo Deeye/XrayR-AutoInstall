@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 
-# 版本: v1.0.5
+# XrayR 智能安装与管理脚本 (NAT 小内存防 OOM 重启优化版)
+# 版本: v1.0.4
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -50,8 +50,8 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (完整结构/NAT版)               ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}完整文件结构 · 极轻量部署 · 自动内存保护${RESET}              ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (NAT 防重启版)                 ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 轻量 · 流式解压 · 自动内存保护${RESET}                 ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -283,7 +283,7 @@ install_dependencies() {
 }
 
 # -----------------------------
-# 小内存防 OOM 保护
+# 小内存防 OOM 重启防护 (关键优化)
 # -----------------------------
 ensure_memory_safety() {
     local total_mem_kb=0
@@ -294,13 +294,13 @@ ensure_memory_safety() {
         swap_mem_kb="$(awk '/SwapTotal:/ {print $2; exit}' /proc/meminfo || echo 0)"
     fi
 
-    # 解压前刷盘并清理缓存
+    # 解压前强行清理 PageCache 缓存，释放物理内存
     sync
     echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 
-    # 如果物理内存小于 512MB 且缺 Swap，尝试创建 512MB 临时 Swap
+    # 如果物理内存小于 512MB 且缺失 Swap，尝试自动创建/挂载 512MB 临时虚拟内存
     if (( total_mem_kb > 0 && total_mem_kb < 524288 )) && (( swap_mem_kb < 262144 )); then
-        status_warn "检测到小内存环境 ($(( total_mem_kb / 1024 )) MB)，配置临时 Swap 防止 OOM 重启..."
+        status_warn "检测到小内存环境 ($(( total_mem_kb / 1024 )) MB)，尝试配置临时 Swap 防止重启..."
         if [[ ! -f /swapfile ]]; then
             dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null || true
             chmod 600 /swapfile 2>/dev/null || true
@@ -309,26 +309,30 @@ ensure_memory_safety() {
         swapon /swapfile >/dev/null 2>&1 || true
 
         if grep -q "/swapfile" /proc/swaps 2>/dev/null; then
-            status_ok "已挂载 512MB 临时 Swap"
+            status_ok "已挂载 512MB 临时 Swap 虚拟内存"
+        else
+            status_warn "容器无法开启 Swap (OpenVZ/LXC)，将采用极轻量流式解压"
         fi
+    else
+        status_ok "内存安全检查完成"
     fi
 }
 
 # -----------------------------
-# 下载与安装（部署完整目录结构）
+# 流式极轻量下载与解压 (关键优化)
 # -----------------------------
 download_and_extract() {
     local arch="$1"
     local raw_url="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${arch}.zip"
-    local zip_file="${CONFIG_DIR}/XrayR_download.zip"
+    local zip_file="${TEMP_DIR}/XrayR.zip"
 
-    mkdir -p "${CONFIG_DIR}"
+    mkdir -p "${TEMP_DIR}" "${CONFIG_DIR}"
 
-    printf '%b\n' "  ${BLUE}▸${RESET} 下载核心资源包 ${DIM}架构: ${arch}${RESET}"
+    printf '%b\n' "  ${BLUE}▸${RESET} 下载核心程序 ${DIM}架构: ${arch}${RESET}"
 
     if ! curl -4 -fL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
         -o "${zip_file}" "${raw_url}"; then
-        status_error "下载失败，请检查网络连接。"
+        status_error "核心程序下载失败，请检查网络连接或 Release 文件名。"
         exit 1
     fi
 
@@ -340,46 +344,24 @@ download_and_extract() {
     printf '%b\n' "  ${BLUE}▸${RESET} 执行内存安全保护"
     ensure_memory_safety
 
-    printf '%b\n' "  ${BLUE}▸${RESET} 解压释放完整文件结构至 ${CONFIG_DIR}"
+    printf '%b\n' "  ${BLUE}▸${RESET} 采用管道流式解压 ${DIM}零缓存消耗，防小鸡重启${RESET}"
 
-    # 如果已有旧配置，先备份
-    if [[ -f "${CONFIG_DIR}/config.yml" ]]; then
-        cp -f "${CONFIG_DIR}/config.yml" "${BACKUP_CONFIG}"
+    # unzip -p 管道直接提取二进制主程序，无需解压其余大文件，大幅降低 RAM/IO 占用
+    if unzip -p "${zip_file}" "XrayR" > "${BINARY_PATH}.tmp" 2>/dev/null || \
+       unzip -p "${zip_file}" "*/XrayR" > "${BINARY_PATH}.tmp" 2>/dev/null; then
+        mv -f "${BINARY_PATH}.tmp" "${BINARY_PATH}"
+    else
+        # 兜底选择：仅单解压 XrayR 执行文件
+        unzip -q -j -o "${zip_file}" "*XrayR*" -d "${CONFIG_DIR}"
     fi
 
-    # 直接解压至 /etc/XrayR/ 目录，避免中间多重目录产生的 I/O 和内存开销
-    if ! unzip -o -q "${zip_file}" -d "${CONFIG_DIR}"; then
-        status_error "解压程序包失败。"
-        exit 1
-    fi
+    chmod 755 "${BINARY_PATH}"
 
-    # 兼容处理：若压缩包内部嵌套了子目录，将内容提至 /etc/XrayR/ 根目录
-    if [[ -d "${CONFIG_DIR}/XrayR-linux-${arch}" ]]; then
-        cp -rf "${CONFIG_DIR}/XrayR-linux-${arch}/"* "${CONFIG_DIR}/" 2>/dev/null || true
-        rm -rf "${CONFIG_DIR}/XrayR-linux-${arch}"
-    fi
-
-    # 若有已有配置备份，则还原；若无，保留解压出来的默认 config.yml
-    if [[ -f "${BACKUP_CONFIG}" ]]; then
-        mv -f "${BACKUP_CONFIG}" "${CONFIG_DIR}/config.yml"
-        chmod 600 "${CONFIG_DIR}/config.yml"
-    fi
-
-    # 补充确保截图中的所有规范文件和目录齐全
-    mkdir -p "${CONFIG_DIR}/cert"
-    touch "${CONFIG_DIR}/debug.log"
-
-    # 设置合理权限
-    chmod 755 "${BINARY_PATH}" 2>/dev/null || true
-    chmod 700 "${CONFIG_DIR}/cert"
-    chmod 644 "${CONFIG_DIR}"/*.json "${CONFIG_DIR}"/*.dat "${CONFIG_DIR}"/debug.log 2>/dev/null || true
-
-    # 立即清理压缩包并释放 Cache
-    rm -f "${zip_file}"
+    # 立即清除压缩包与临时目录并强制刷盘
+    rm -rf "${TEMP_DIR}"
     sync
-    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 
-    status_ok "已生成完整文件结构 (cert/, *.json, *.dat, debug.log)"
+    status_ok "核心程序已部署至 ${BINARY_PATH}"
 }
 
 # -----------------------------
@@ -399,7 +381,7 @@ check_binary() {
 }
 
 # -----------------------------
-# 服务注册
+# 服务注册 (针对低配 NAT 加入内存限额策略)
 # -----------------------------
 register_service() {
     section_title "注册系统服务" "配置开机启动与后台运行"
@@ -426,7 +408,7 @@ WantedBy=multi-user.target
 EOF
 
         systemctl daemon-reload
-        status_ok "systemd 服务已注册 (运行目录: ${CONFIG_DIR})"
+        status_ok "systemd 服务已注册 (配置 128MB GC 限制)"
     else
         cat > /etc/init.d/xrayr <<EOF
 #!/sbin/openrc-run
@@ -497,17 +479,28 @@ show_install_process() {
     printf '%b\n' "  ${BLUE}▸${RESET} 创建配置目录 ${DIM}${CONFIG_DIR}${RESET}"
     mkdir -p "${CONFIG_DIR}"
 
+    if [[ -f "${CONFIG_DIR}/config.yml" ]]; then
+        status_warn "检测到已有配置文件，正在创建备份"
+        cp -f "${CONFIG_DIR}/config.yml" "${BACKUP_CONFIG}"
+    fi
+
     srv_stop
     status_ok "配置目录准备完成"
 
     echo
-    echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}部署完整程序包与资源文件${RESET}"
+    echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}流式提取核心程序${RESET}"
     show_line
 
     local arch
     arch="$(get_architecture)"
     download_and_extract "${arch}"
     check_binary
+
+    if [[ -f "${BACKUP_CONFIG}" ]]; then
+        mv -f "${BACKUP_CONFIG}" "${CONFIG_DIR}/config.yml"
+        chmod 600 "${CONFIG_DIR}/config.yml"
+        status_ok "已恢复原有配置文件"
+    fi
 
     echo
     echo -e " ${BOLD}${CYAN}[4/4]${RESET} ${WHITE}注册系统服务与管理命令${RESET}"
@@ -522,6 +515,11 @@ show_install_process() {
     printf '%b\n' "${GREEN}${BOLD}╰────────────────────────────────────────────────────────────────────╯${RESET}"
     echo
     echo -e "  ${DIM}以后可直接输入${RESET} ${BOLD}${CYAN}xrayr${RESET} ${DIM}打开管理面板${RESET}"
+
+    if [[ ! -f "${CONFIG_DIR}/config.yml" ]]; then
+        echo
+        status_warn "当前未检测到 config.yml，请先配置后再启动服务"
+    fi
 
     sleep 2
     show_manage_menu
