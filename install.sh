@@ -2,7 +2,7 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 (NAT 小内存防 OOM 重启优化版)
+# XrayR 智能安装与管理脚本
 # 版本: v1.0.4
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
