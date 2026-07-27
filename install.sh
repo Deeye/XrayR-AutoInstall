@@ -119,28 +119,11 @@ get_architecture() {
     esac
 }
 
-check_memory_and_swap() {
-    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
-    local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
-    
-    if [[ -n "${total_mem:-}" && "${total_mem:-0}" -lt 600 && "${total_swap:-0}" -lt 500 ]]; then
-        type_effect "${YELLOW}⚠️ 检测到当前服务器内存较小 (${total_mem}MB)，正在创建 1GB 临时 Swap 虚拟内存...${PLAIN}"
-        dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
-        chmod 600 /swapfile
-        mkswap /swapfile >/dev/null 2>&1
-        swapon /swapfile >/dev/null 2>&1
-        type_effect "${GREEN}✔ 临时防 Crash 虚拟内存加载成功！${PLAIN}"
-    fi
-}
-
-# ==========================================================
-# 【安装步骤优化 1】：依赖免检极速跳过机制
-# ==========================================================
+# 依赖免检极速跳过机制
 install_dependencies() {
     local os_name=$(get_os_name)
     type_effect "${BLUE}➜ 识别到系统平台: ${BOLD}${os_name} [${INIT_SYSTEM^^} 引擎]${PLAIN}"
     
-    # 核心体检：如果基础组件全部完备，直接秒跳过包管理器！
     if command -v curl >/dev/null 2>&1 && command -v wget >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && command -v ca-certificates >/dev/null 2>&1; then
         type_effect "${GREEN}✔ 系统基础依赖工具已全部就绪，已智能跳过包管理器漫长的同步更新。${PLAIN}"
         return 0
@@ -168,14 +151,11 @@ install_dependencies() {
     fi
 }
 
-# ==========================================================
-# 【安装步骤优化 2】：核心主程序智能安装流程
-# ==========================================================
+# 核心主程序智能安装流程
 show_install_process() {
     show_banner
-    type_effect "${YELLOW}[1/4] 🚀 正在深度体检系统环境与内存状态...${PLAIN}"
+    type_effect "${YELLOW}[1/4] 🚀 正在初始化系统运行环境...${PLAIN}"
     
-    check_memory_and_swap
     install_dependencies
     
     type_effect "${YELLOW}\n[2/4] 📂 正在安全构建目标运行空间 ${INSTALL_DIR} ...${PLAIN}"
@@ -184,7 +164,6 @@ show_install_process() {
         cp -f ${INSTALL_DIR}/config.yml ${BACKUP_CONFIG}
     fi
     
-    # 停止老服务，清空工作区
     srv_stop 2>/dev/null || true
     rm -rf ${INSTALL_DIR}
     mkdir -p ${INSTALL_DIR}
@@ -194,7 +173,6 @@ show_install_process() {
     ARCH=$(get_architecture)
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
-    # 【优化】：构建 GitHub 官方源 + 多条 CDN 代理镜像备用池
     MIRROR_URLS=(
         "${RAW_URL}"
         "https://ghproxy.net/${RAW_URL}"
@@ -205,7 +183,6 @@ show_install_process() {
     for url in "${MIRROR_URLS[@]}"; do
         type_effect "${BLUE}➜ 尝试连通镜像源下载: ${url:0:45}...${PLAIN}"
         if wget -t 2 -T 10 -q --no-check-certificate -O XrayR.zip "${url}"; then
-            # 校验是否为合法 ZIP 文件且不为空
             if [[ -s "XrayR.zip" ]] && unzip -tq XrayR.zip >/dev/null 2>&1; then
                 DOWNLOAD_SUCCESS=true
                 break
@@ -224,9 +201,6 @@ show_install_process() {
     rm -f XrayR.zip
     chmod +x XrayR
     
-    # ==========================================================
-    # 【安装步骤优化 3】：自检试运行 (Self-Test) 与安全加固
-    # ==========================================================
     type_effect "${BLUE}➜ 正在执行二进制底层兼容性自检...${PLAIN}"
     if ! ./XrayR --version >/dev/null 2>&1 && ! ./XrayR -version >/dev/null 2>&1; then
         echo -e "${RED}[严重错误] 核心程序自检不通过！可能因缺少系统底层链接库 (libc/musl) 或 CPU 架构不匹配。${PLAIN}"
@@ -236,12 +210,10 @@ show_install_process() {
     fi
     type_effect "${GREEN}✔ 二进制自检通过！内核兼容性完美。${PLAIN}"
 
-    # 还原配置并加固权限
     if [ -f "${BACKUP_CONFIG}" ]; then
         mv -f ${BACKUP_CONFIG} ${INSTALL_DIR}/config.yml
         type_effect "${GREEN}✔ 历史对接参数已还原。${PLAIN}"
     fi
-    # 【优化】：强锁敏感配置文件权限，防止 API Key 被其他特权容器或用户窃取
     [[ -f "${INSTALL_DIR}/config.yml" ]] && chmod 600 ${INSTALL_DIR}/config.yml
 
     type_effect "${YELLOW}\n[4/4] ⚙️ 正在向 [${INIT_SYSTEM^^}] 守护进程注册标准常驻服务...${PLAIN}"
@@ -286,7 +258,6 @@ EOF
 
     srv_enable
     
-    # 同步系统级快捷管理指令
     type_effect "${YELLOW}正在绑定系统快捷管理指令...${PLAIN}"
     if curl -sL --connect-timeout 10 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
         if [[ -s "/tmp/xrayr_temp.sh" ]]; then
@@ -295,7 +266,6 @@ EOF
             ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
         fi
     fi
-    # 【优化】：深度清理临时文件
     rm -f "/tmp/xrayr_temp.sh" "${BACKUP_CONFIG}"
 
     type_effect "${GREEN}✔ 开机自启常驻与系统快捷指令 [xrayr / XrayR] 绑定成功。${PLAIN}"
