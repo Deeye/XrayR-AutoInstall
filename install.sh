@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (优雅可视化自适应版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (精简高效版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -31,6 +31,21 @@ CONFIG_DIR="/etc/XrayR"
 BINARY_PATH=""
 IS_NAT=false
 
+# 统计安装与下载次数配置 (初始值 6856)
+INITIAL_COUNT=6856
+INSTALL_COUNT=${INITIAL_COUNT}
+
+fetch_install_count() {
+    local remote_count
+    remote_count=$(curl -s --max-time 2 "https://api.countapi.xyz/hit/Deeye-XrayR-AutoInstall/visits" 2>/dev/null | grep -o '"value":[^,]*' | awk -F: '{print $2}')
+    if [[ -n "$remote_count" && "$remote_count" -gt 0 ]]; then
+        INSTALL_COUNT=$((INITIAL_COUNT + remote_count))
+    else
+        INSTALL_COUNT=${INITIAL_COUNT}
+    fi
+}
+fetch_install_count
+
 type_effect() {
     local text="$1"
     local delay=0.003
@@ -56,6 +71,7 @@ show_banner() {
     show_line
     echo -e " 🚀 ${BOLD}XrayR 智能可视化控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
     echo -e " 📂 ${YELLOW}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${PLAIN}"
+    echo -e " 📊 ${CYAN}全球累计安装下载次数: ${BOLD}${GREEN}${INSTALL_COUNT}${PLAIN} 次"
     show_line
 }
 
@@ -63,25 +79,6 @@ if [[ $EUID -ne 0 ]]; then
     echo -e "${RED}[错误] 本脚本必须以 root 用户身份运行！请执行 sudo -i 切换后重试。${PLAIN}"
     exit 1
 fi
-
-# 可视化内存自检与 Swap 构建
-check_and_fix_memory() {
-    local total_mem
-    total_mem=$(free -m | awk '/Mem:/ {print $2}')
-    echo -e "${BLUE}🔍 内存环境分析: 检测到系统物理内存为 ${BOLD}${total_mem}MB${PLAIN}"
-    if [[ -n "$total_mem" && "$total_mem" -lt 300 ]]; then
-        echo -e "${YELLOW}⚠️ 物理内存低于 300MB，正在启用低配保护：创建 1GB 临时虚拟内存 (Swap)...${PLAIN}"
-        if ! grep -q "swap" /proc/swaps; then
-            fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 2>/dev/null
-            chmod 600 /swapfile
-            mkswap /swapfile >/dev/null 2>&1
-            swapon /swapfile >/dev/null 2>&1
-            echo -e "${GREEN}✔ 临时虚拟内存挂载成功，当前 OOM 崩溃风险已解除。${PLAIN}"
-        fi
-    else
-        echo -e "${GREEN}✔ 内存资源充足，跳过虚拟内存扩展。${PLAIN}"
-    fi
-}
 
 # 可视化 NAT 环境嗅探
 detect_environment() {
@@ -181,9 +178,8 @@ install_dependencies() {
 
 show_install_process() {
     show_banner
-    echo -e " ${BOLD}[步骤 1/4] 初始化运行环境与防崩溃保护${PLAIN}"
+    echo -e " ${BOLD}[步骤 1/4] 初始化系统运行环境${PLAIN}"
     show_line
-    check_and_fix_memory
     install_dependencies
     echo ""
 
