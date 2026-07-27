@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (Codename: 将进酒)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 (NAT 特化加固版)
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
@@ -54,7 +54,7 @@ show_banner() {
     echo -e "${GREEN}██╔╝ ██╗██║  ██║██║  ██║   ██║   ██║  ██║    ██║  ██║${PLAIN}"
     echo -e "${GREEN}╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝${PLAIN}"
     show_line
-    echo -e " 🚀 ${BOLD}XrayR 2026 现代化重构版 控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
+    echo -e " 🚀 ${BOLD}XrayR NAT 特化加固版 控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
     echo -e " 📂 ${YELLOW}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${PLAIN}"
     show_line
 }
@@ -119,13 +119,13 @@ get_architecture() {
     esac
 }
 
-# 依赖免检极速跳过机制
+# 依赖免检极速跳过机制 (针对 NAT 环境增加基础工具与兼容库保障)
 install_dependencies() {
     local os_name=$(get_os_name)
     type_effect "${BLUE}➜ 识别到系统平台: ${BOLD}${os_name} [${INIT_SYSTEM^^} 引擎]${PLAIN}"
     
     if command -v curl >/dev/null 2>&1 && command -v wget >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && command -v ca-certificates >/dev/null 2>&1; then
-        type_effect "${GREEN}✔ 系统基础依赖工具已全部就绪，已智能跳过包管理器漫长的同步更新。${PLAIN}"
+        type_effect "${GREEN}✔ 系统基础依赖工具已全部就绪，已智能跳过包管理器同步。${PLAIN}"
         return 0
     fi
 
@@ -133,28 +133,28 @@ install_dependencies() {
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq >/dev/null 2>&1
-        apt-get install -y -qq curl wget unzip ca-certificates >/dev/null 2>&1
+        apt-get install -y -qq curl wget unzip ca-certificates file >/dev/null 2>&1
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y -q curl wget unzip ca-certificates >/dev/null 2>&1
+        dnf install -y -q curl wget unzip ca-certificates file >/dev/null 2>&1
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y -q curl wget unzip ca-certificates >/dev/null 2>&1
+        yum install -y -q curl wget unzip ca-certificates file >/dev/null 2>&1
     elif command -v apk >/dev/null 2>&1; then
         apk update -q >/dev/null 2>&1
-        apk add --no-cache curl wget unzip ca-certificates bash openrc >/dev/null 2>&1
+        apk add --no-cache curl wget unzip ca-certificates bash openrc file gcompat libc6-compat >/dev/null 2>&1
     elif command -v pacman >/dev/null 2>&1; then
-        pacman -Sy --noconfirm --needed curl wget unzip ca-certificates >/dev/null 2>&1
+        pacman -Sy --noconfirm --needed curl wget unzip ca-certificates file >/dev/null 2>&1
     elif command -v zypper >/dev/null 2>&1; then
-        zypper --non-interactive install -y curl wget unzip ca-certificates >/dev/null 2>&1
+        zypper --non-interactive install -y curl wget unzip ca-certificates file >/dev/null 2>&1
     else
         echo -e "${RED}[错误] 无法识别当前系统的包管理器！支持: apt, dnf, yum, apk, pacman, zypper。${PLAIN}"
         exit 1
     fi
 }
 
-# 核心主程序智能安装流程
+# 核心主程序智能安装流程 (NAT 机器特化增强)
 show_install_process() {
     show_banner
-    type_effect "${YELLOW}[1/4] 🚀 正在初始化系统运行环境...${PLAIN}"
+    type_effect "${YELLOW}[1/4] 🚀 正在初始化系统运行环境与 NAT 适配层...${PLAIN}"
     
     install_dependencies
     
@@ -169,7 +169,7 @@ show_install_process() {
     mkdir -p ${INSTALL_DIR}
     cd ${INSTALL_DIR}
 
-    type_effect "${YELLOW}\n[3/4] 🌐 正在通过智能多镜像加速拉取核心二进制主程序...${PLAIN}"
+    type_effect "${YELLOW}\n[3/4] 🌐 正在通过智能多镜像加速拉取核心二进制主程序 (针对 NAT 网络优化)...${PLAIN}"
     ARCH=$(get_architecture)
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
@@ -182,7 +182,8 @@ show_install_process() {
     DOWNLOAD_SUCCESS=false
     for url in "${MIRROR_URLS[@]}"; do
         type_effect "${BLUE}➜ 尝试连通镜像源下载: ${url:0:45}...${PLAIN}"
-        if wget -t 2 -T 10 -q --no-check-certificate -O XrayR.zip "${url}"; then
+        # 增加超时时间和重试次数，适应 NAT 较慢的网络
+        if wget -t 3 -T 15 -q --no-check-certificate -O XrayR.zip "${url}"; then
             if [[ -s "XrayR.zip" ]] && unzip -tq XrayR.zip >/dev/null 2>&1; then
                 DOWNLOAD_SUCCESS=true
                 break
@@ -193,7 +194,7 @@ show_install_process() {
     done
 
     if [[ "${DOWNLOAD_SUCCESS}" != "true" ]]; then
-        echo -e "${RED}[错误] 核心压缩包拉取失败！请检查系统网络或远程 GitHub Release 资源是否发布。${PLAIN}"
+        echo -e "${RED}[错误] 核心压缩包拉取失败！由于您的 NAT 机器网络到 GitHub 存在延迟或阻断，请检查网络或更换节点重试。${PLAIN}"
         exit 1
     fi
 
@@ -201,10 +202,27 @@ show_install_process() {
     rm -f XrayR.zip
     chmod +x XrayR
     
-    type_effect "${BLUE}➜ 正在执行二进制底层兼容性自检...${PLAIN}"
+    # 【NAT 特化校验】：硬检查解压出的文件是否为真正的 ELF 可执行文件（防止因网络代理返回 HTML 报错页导致误判）
+    type_effect "${BLUE}➜ 正在进行 NAT 环境 ELF 二进制主程序严格审查...${PLAIN}"
+    if [[ ! -f "XrayR" ]]; then
+        echo -e "${RED}[严重错误] 未找到解压后的主程序文件！${PLAIN}"
+        exit 1
+    fi
+    
+    # 兼容性检查：若系统无 file 命令则通过 readelf 或直接尝试运行判断
+    if command -v file >/dev/null 2>&1; then
+        if ! file XrayR | grep -qE "ELF|executable"; then
+            echo -e "${RED}[严重错误] 下载的文件不是合法的 Linux 可执行程序！${PLAIN}"
+            echo -e "${YELLOW}提示：这通常是由于 NAT 机器网络链路异常，导致下载到了代理服务器的 HTML 错误页面。请稍后重试。${PLAIN}"
+            cd .. && rm -rf ${INSTALL_DIR}
+            exit 1
+        fi
+    fi
+
+    type_effect "${BLUE}➜ 正在执行底层兼容性自检...${PLAIN}"
     if ! ./XrayR --version >/dev/null 2>&1 && ! ./XrayR -version >/dev/null 2>&1; then
-        echo -e "${RED}[严重错误] 核心程序自检不通过！可能因缺少系统底层链接库 (libc/musl) 或 CPU 架构不匹配。${PLAIN}"
-        echo -e "${RED}已安全中止安装，未对系统后台造成任何破坏。${PLAIN}"
+        echo -e "${RED}[严重错误] 核心程序自检不通过！${PLAIN}"
+        echo -e "${YELLOW}排查建议：部分极简 NAT 容器（如 Alpine/OpenVZ）可能缺少 glibc 运行库，建议检查系统架构或更换主流 Debian/Ubuntu 系统。${PLAIN}"
         cd .. && rm -rf ${INSTALL_DIR}
         exit 1
     fi
@@ -221,7 +239,7 @@ show_install_process() {
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
         cat > /etc/systemd/system/xrayr.service <<EOF
 [Unit]
-Description=XrayR Backend Service (2026 Edition)
+Description=XrayR Backend Service (NAT Edition)
 After=network.target nss-lookup.target
 
 [Service]
@@ -240,7 +258,7 @@ EOF
         cat > /etc/init.d/xrayr <<'EOF'
 #!/sbin/openrc-run
 name="XrayR Backend Service"
-description="XrayR Backend Service (2026 Edition)"
+description="XrayR Backend Service (NAT Edition)"
 command="/etc/XrayR/XrayR"
 command_args="--config /etc/XrayR/config.yml"
 command_background="yes"
@@ -259,7 +277,7 @@ EOF
     srv_enable
     
     type_effect "${YELLOW}正在绑定系统快捷管理指令...${PLAIN}"
-    if curl -sL --connect-timeout 10 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
+    if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
         if [[ -s "/tmp/xrayr_temp.sh" ]]; then
             mv -f "/tmp/xrayr_temp.sh" ${SYSTEM_CMD_PATH}
             chmod +x ${SYSTEM_CMD_PATH}
@@ -271,7 +289,7 @@ EOF
     type_effect "${GREEN}✔ 开机自启常驻与系统快捷指令 [xrayr / XrayR] 绑定成功。${PLAIN}"
     echo ""
     show_line
-    echo -e " 🎉 ${BOLD}恭喜您！XrayR 核心程序极速安装与加固完备！${PLAIN}"
+    echo -e " 🎉 ${BOLD}恭喜您！XrayR NAT 特化版本安装与加固完备！${PLAIN}"
     echo -e " ⚡ ${BLUE}终端随时输入指令: ${YELLOW}xrayr${BLUE} 或是 ${YELLOW}XrayR${BLUE} 即可呼出管理面板。${PLAIN}"
     show_line
     echo ""
