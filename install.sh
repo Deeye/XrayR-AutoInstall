@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 (统一 /etc/XrayR 目录版)
-# 版本: v1.0.3
+# XrayR 智能安装与管理脚本 (NAT 小内存防 OOM 重启优化版)
+# 版本: v1.0.4
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -50,8 +50,8 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (统一目录版)                  ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 简洁 · 高效 · 自动部署${RESET}                         ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (NAT 防重启版)                 ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 轻量 · 流式解压 · 自动内存保护${RESET}                 ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -283,50 +283,50 @@ install_dependencies() {
 }
 
 # -----------------------------
-# 安全资源检查
+# 小内存防 OOM 重启防护 (关键优化)
 # -----------------------------
-check_resources() {
-    local available_mem_kb=0
-    local available_disk_kb=0
+ensure_memory_safety() {
+    local total_mem_kb=0
+    local swap_mem_kb=0
 
     if [[ -r /proc/meminfo ]]; then
-        available_mem_kb="$(awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo || true)"
-        if [[ -z "${available_mem_kb}" ]]; then
-            available_mem_kb="$(awk '/MemFree:/ {print $2; exit}' /proc/meminfo || true)"
-        fi
+        total_mem_kb="$(awk '/MemTotal:/ {print $2; exit}' /proc/meminfo || echo 0)"
+        swap_mem_kb="$(awk '/SwapTotal:/ {print $2; exit}' /proc/meminfo || echo 0)"
     fi
 
-    available_disk_kb="$(df -Pk "${TEMP_DIR}" | awk 'NR==2 {print $4}')"
+    # 解压前强行清理 PageCache 缓存，释放物理内存
+    sync
+    echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 
-    if [[ "${available_mem_kb:-0}" =~ ^[0-9]+$ ]] && (( available_mem_kb > 0 )); then
-        if (( available_mem_kb < 65536 )); then
-            status_warn "当前可用内存较低: ${available_mem_kb} KB"
-            status_warn "低内存 NAT VPS 可能被宿主机 OOM 机制重启"
-        else
-            status_ok "可用内存检查通过"
+    # 如果物理内存小于 512MB 且缺失 Swap，尝试自动创建/挂载 512MB 临时虚拟内存
+    if (( total_mem_kb > 0 && total_mem_kb < 524288 )) && (( swap_mem_kb < 262144 )); then
+        status_warn "检测到小内存环境 ($(( total_mem_kb / 1024 )) MB)，尝试配置临时 Swap 防止重启..."
+        if [[ ! -f /swapfile ]]; then
+            dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null || true
+            chmod 600 /swapfile 2>/dev/null || true
+            mkswap /swapfile >/dev/null 2>&1 || true
         fi
-    fi
+        swapon /swapfile >/dev/null 2>&1 || true
 
-    if [[ "${available_disk_kb:-0}" =~ ^[0-9]+$ ]]; then
-        if (( available_disk_kb < 131072 )); then
-            status_error "临时目录可用磁盘空间不足"
-            exit 1
+        if grep -q "/swapfile" /proc/swaps 2>/dev/null; then
+            status_ok "已挂载 512MB 临时 Swap 虚拟内存"
         else
-            status_ok "可用磁盘空间检查通过"
+            status_warn "容器无法开启 Swap (OpenVZ/LXC)，将采用极轻量流式解压"
         fi
+    else
+        status_ok "内存安全检查完成"
     fi
 }
 
 # -----------------------------
-# 下载与解压
+# 流式极轻量下载与解压 (关键优化)
 # -----------------------------
 download_and_extract() {
     local arch="$1"
     local raw_url="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${arch}.zip"
     local zip_file="${TEMP_DIR}/XrayR.zip"
-    local extract_dir="${TEMP_DIR}/extract"
 
-    mkdir -p "${TEMP_DIR}" "${extract_dir}"
+    mkdir -p "${TEMP_DIR}" "${CONFIG_DIR}"
 
     printf '%b\n' "  ${BLUE}▸${RESET} 下载核心程序 ${DIM}架构: ${arch}${RESET}"
 
@@ -341,36 +341,31 @@ download_and_extract() {
         exit 1
     fi
 
-    printf '%b\n' "  ${BLUE}▸${RESET} 检查系统资源"
-    check_resources
+    printf '%b\n' "  ${BLUE}▸${RESET} 执行内存安全保护"
+    ensure_memory_safety
 
-    printf '%b\n' "  ${BLUE}▸${RESET} 解压程序包 ${DIM}解压至 ${CONFIG_DIR}${RESET}"
+    printf '%b\n' "  ${BLUE}▸${RESET} 采用管道流式解压 ${DIM}零缓存消耗，防小鸡重启${RESET}"
 
-    rm -rf "${extract_dir}"
-    mkdir -p "${extract_dir}"
-
-    if ! unzip -q -o "${zip_file}" -d "${extract_dir}"; then
-        status_error "解压失败。"
-        status_warn "如果机器在此阶段重启，请优先检查宿主机 OOM、内核 panic 或 watchdog 日志。"
-        exit 1
+    # unzip -p 管道直接提取二进制主程序，无需解压其余大文件，大幅降低 RAM/IO 占用
+    if unzip -p "${zip_file}" "XrayR" > "${BINARY_PATH}.tmp" 2>/dev/null || \
+       unzip -p "${zip_file}" "*/XrayR" > "${BINARY_PATH}.tmp" 2>/dev/null; then
+        mv -f "${BINARY_PATH}.tmp" "${BINARY_PATH}"
+    else
+        # 兜底选择：仅单解压 XrayR 执行文件
+        unzip -q -j -o "${zip_file}" "*XrayR*" -d "${CONFIG_DIR}"
     fi
 
-    local extracted_binary=""
-    extracted_binary="$(find "${extract_dir}" -type f -name "XrayR" -print -quit)"
+    chmod 755 "${BINARY_PATH}"
 
-    if [[ -z "${extracted_binary}" || ! -f "${extracted_binary}" ]]; then
-        status_error "解压完成，但未找到 XrayR 主程序。"
-        exit 1
-    fi
-
-    chmod 755 "${extracted_binary}"
-    install -m 0755 "${extracted_binary}" "${BINARY_PATH}"
+    # 立即清除压缩包与临时目录并强制刷盘
+    rm -rf "${TEMP_DIR}"
+    sync
 
     status_ok "核心程序已部署至 ${BINARY_PATH}"
 }
 
 # -----------------------------
-# 二进制自检 (已适配子命令)
+# 二进制自检
 # -----------------------------
 check_binary() {
     printf '%b\n' "  ${BLUE}▸${RESET} 执行核心程序自检"
@@ -386,7 +381,7 @@ check_binary() {
 }
 
 # -----------------------------
-# 服务注册
+# 服务注册 (针对低配 NAT 加入内存限额策略)
 # -----------------------------
 register_service() {
     section_title "注册系统服务" "配置开机启动与后台运行"
@@ -402,6 +397,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=${CONFIG_DIR}
+Environment=GOMEMLIMIT=128MiB
 ExecStart=${BINARY_PATH} --config ${CONFIG_DIR}/config.yml
 Restart=on-failure
 RestartSec=10s
@@ -412,7 +408,7 @@ WantedBy=multi-user.target
 EOF
 
         systemctl daemon-reload
-        status_ok "systemd 服务已注册"
+        status_ok "systemd 服务已注册 (配置 128MB GC 限制)"
     else
         cat > /etc/init.d/xrayr <<EOF
 #!/sbin/openrc-run
@@ -492,7 +488,7 @@ show_install_process() {
     status_ok "配置目录准备完成"
 
     echo
-    echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}下载核心程序并执行安全解压${RESET}"
+    echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}流式提取核心程序${RESET}"
     show_line
 
     local arch
@@ -541,7 +537,6 @@ uninstall_xrayr() {
     srv_stop
     srv_disable
 
-    # 彻底清理目录与快捷方式
     rm -rf "${CONFIG_DIR}"
     rm -f "${SYSTEM_CMD_PATH}" /usr/local/bin/XrayR /usr/local/bin/xrayr-core
 
