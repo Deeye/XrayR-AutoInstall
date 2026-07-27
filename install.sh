@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 
 # ==========================================================
-# 项目名称: XrayR 现代化重构版全功能管理脚本 (极致工程优化版)
+# 项目名称: XrayR 现代化重构版全功能管理脚本 
 # 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
 
 set -eu
 
-# 霓虹极客配色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-MAGENTA='\033[1;35m'
-BOLD='\033[1;32m'
-PLAIN='\033[0m'
+# 统一 UI 配色主题
+RESET='\033[0m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+MAGENTA='\033[35m'
+CYAN='\033[36m'
+WHITE='\033[37m'
+BG_BLUE='\033[44m'
 
 # 项目核心全局变量
 GITHUB_USER="Deeye"
@@ -38,47 +40,65 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 统计安装与下载次数配置 (初始值 6856)
-INITIAL_COUNT=6856
-INSTALL_COUNT=${INITIAL_COUNT}
-
-fetch_install_count() {
-    local remote_count
-    remote_count=$(curl -s --max-time 2 "https://api.countapi.xyz/hit/Deeye-XrayR-AutoInstall/visits" 2>/dev/null | grep -o '"value":[^,]*' | awk -F: '{print $2}' || true)
-    if [[ -n "${remote_count:-}" && "$remote_count" -gt 0 ]]; then
-        INSTALL_COUNT=$((INITIAL_COUNT + remote_count))
-    else
-        INSTALL_COUNT=${INITIAL_COUNT}
-    fi
-}
-fetch_install_count
-
 show_line() {
-    echo -e "${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${CYAN}─${BLUE}─${PURPLE}─${MAGENTA}─${RED}─${YELLOW}─${GREEN}─${PLAIN}"
+    printf '%b\n' "${DIM}${BLUE}────────────────────────────────────────────────────────────────────${RESET}"
+}
+
+show_header() {
+    printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能服务管理面板${RESET}                              ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 简洁 · 高效${RESET}                                          ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
 show_banner() {
     clear
-    echo -e "${MAGENTA}██╗  ██╗██████╗  █████╗ ██╗   ██╗██████╗     ██████╗ ${PLAIN}"
-    echo -e "${PURPLE}╚██╗██╔╝██╔══██╗██╔══██╗╚██╗ ██╔╝██╔══██╗    ██╔══██╗${PLAIN}"
-    echo -e "${BLUE} ╚███╔╝ ██████╔╝███████║ ╚████╔╝ ██████╔╝    ██████╔╝${PLAIN}"
-    echo -e "${CYAN} ██╔██╗ ██╔══██╗██╔══██║  ╚██╔╝  ██╔══██╗    ██╔══██╗${PLAIN}"
-    echo -e "${GREEN}██╔╝ ██╗██║  ██║██║  ██║   ██║   ██║  ██║    ██║  ██║${PLAIN}"
-    echo -e "${GREEN}╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝  ╚═╝${PLAIN}"
-    show_line
-    echo -e " 🚀 ${BOLD}XrayR 智能可视化控制面板${PLAIN} | ${MAGENTA}Codename: 将进酒${PLAIN}"
-    echo -e " 📂 ${YELLOW}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${PLAIN}"
-    echo -e " 📊 ${CYAN}全球累计安装下载次数: ${BOLD}${GREEN}${INSTALL_COUNT}${PLAIN} 次"
+    printf '%b\n' "${MAGENTA}██╗  ██╗██████╗  █████╗ ██╗   ██╗██████╗${RESET}"
+    printf '%b\n' "${PURPLE}╚██╗██╔╝██╔══██╗██╔══██╗╚██╗ ██╔╝██╔══██╗${RESET}"
+    printf '%b\n' "${BLUE} ╚███╔╝ ██████╔╝███████║ ╚████╔╝ ██████╔╝${RESET}"
+    printf '%b\n' "${CYAN} ██╔██╗ ██╔══██╗██╔══██║  ╚██╔╝  ██╔══██╗${RESET}"
+    printf '%b\n' "${GREEN}██╔╝ ██╗██║  ██║██║  ██║   ██║   ██║  ██║${RESET}"
+    printf '%b\n' "${GREEN}╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝${RESET}"
+    echo
+    show_header
+    printf '%b\n' " ${DIM}开源仓库: https://github.com/${GITHUB_USER}/${REPO_NAME}${RESET}"
     show_line
 }
 
+section_title() {
+    local title="$1"
+    local subtitle="${2:-}"
+    echo
+    printf '%b\n' "${BOLD}${CYAN}◆ ${title}${RESET}"
+    [[ -n "$subtitle" ]] && printf '%b\n' "  ${DIM}${subtitle}${RESET}"
+    show_line
+}
+
+status_ok() {
+    printf '%b\n' "  ${GREEN}✔${RESET} $1"
+}
+
+status_warn() {
+    printf '%b\n' "  ${YELLOW}⚠${RESET} $1"
+}
+
+status_error() {
+    printf '%b\n' "  ${RED}✖${RESET} $1"
+}
+
+pause_screen() {
+    echo
+    read -r -p "  按 Enter 返回..." _
+}
+
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}[错误] 本脚本必须以 root 用户身份运行！请执行 sudo -i 切换后重试。${PLAIN}"
+    echo -e "${RED}[错误] 本脚本必须以 root 用户身份运行！请执行 sudo -i 切换后重试。${RESET}"
     exit 1
 fi
 
 detect_environment() {
-    echo -e "${BLUE}🌐 正在探测服务器网络架构与虚拟化层级...${PLAIN}"
+    section_title "环境检测" "正在识别网络架构与部署模式"
+
     local local_ip=""
     local_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7;exit}' || true)
     if [[ -z "${local_ip:-}" ]]; then
@@ -95,14 +115,13 @@ detect_environment() {
         fi
     fi
 
-    show_line
     if [[ "$IS_NAT" == "true" ]]; then
-        echo -e " 💻 架构判定: ${YELLOW}${BOLD}NAT / 内网虚拟化环境${PLAIN}"
-        echo -e " 🛠️ 部署模式: ${CYAN}二进制与配置分离模式${PLAIN} (主程序独立至 /usr/local/bin)"
+        printf '%b\n' "  ${YELLOW}●${RESET} 网络环境  ${BOLD}NAT / 内网虚拟化环境${RESET}"
+        printf '%b\n' "  ${DIM}└─${RESET} 部署模式  二进制与配置分离"
         BINARY_PATH="/usr/local/bin/xrayr-core"
     else
-        echo -e " 💻 架构判定: ${GREEN}${BOLD}独立公网服务器${PLAIN}"
-        echo -e " 🛠️ 部署模式: ${CYAN}标准一体化模式${PLAIN} (程序与配置集中于 /etc/XrayR)"
+        printf '%b\n' "  ${GREEN}●${RESET} 网络环境  ${BOLD}独立公网服务器${RESET}"
+        printf '%b\n' "  ${DIM}└─${RESET} 部署模式  标准一体化部署"
         BINARY_PATH="${CONFIG_DIR}/XrayR"
     fi
     show_line
@@ -115,7 +134,7 @@ check_init_system() {
     elif command -v openrc >/dev/null 2>&1 || [[ -f /etc/alpine-release ]] || command -v rc-service >/dev/null 2>&1; then
         INIT_SYSTEM="openrc"
     else
-        echo -e "${RED}[错误] 无法识别当前系统的初始化进程！${PLAIN}"
+        echo -e "${RED}[错误] 无法识别当前系统的初始化进程！${RESET}"
         exit 1
     fi
 }
@@ -146,14 +165,14 @@ get_architecture() {
         x86_64|amd64) echo "64" ;;
         aarch64|arm64) echo "arm64" ;;
         armv7l|armv6l) echo "arm" ;;
-        *) echo -e "${RED}[错误] 不支持的 CPU 架构: ${arch}${PLAIN}"; exit 1 ;;
+        *) echo -e "${RED}[错误] 不支持的 CPU 架构: ${arch}${RESET}"; exit 1 ;;
     esac
 }
 
 install_dependencies() {
-    echo -e "${BLUE}📦 正在检查并补齐核心依赖组件 (curl/wget/unzip)...${PLAIN}"
+    echo -e "  ${BLUE}▸${RESET} 检查基础依赖 ${DIM}(curl / wget / unzip)${RESET}"
     if command -v curl >/dev/null 2>&1 && command -v wget >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
-        echo -e "${GREEN}✔ 基础依赖工具已全部就绪。${PLAIN}"
+        status_ok "基础依赖已全部就绪"
         return 0
     fi
 
@@ -169,79 +188,78 @@ install_dependencies() {
         apk update -q >/dev/null 2>&1
         apk add --no-cache curl wget unzip ca-certificates bash openrc file gcompat libc6-compat >/dev/null 2>&1
     fi
-    echo -e "${GREEN}✔ 依赖组件安装完成。${PLAIN}"
+    status_ok "依赖组件安装完成"
 }
 
 show_install_process() {
     show_banner
-    echo -e " ${BOLD}[步骤 1/4] 初始化系统运行环境${PLAIN}"
+    section_title "安装 XrayR" "开始执行全自动部署流程"
+
+    echo -e " ${BOLD}${CYAN}[1/4]${RESET} ${WHITE}初始化系统运行环境${RESET}"
     show_line
     install_dependencies
-    echo ""
+    echo
 
-    echo -e " ${BOLD}[步骤 2/4] 构建配置目录与备份${PLAIN}"
+    echo -e " ${BOLD}${CYAN}[2/4]${RESET} ${WHITE}准备配置目录与备份${RESET}"
     show_line
-    echo -e "${BLUE}📂 正在创建配置目录: ${CONFIG_DIR}${PLAIN}"
-    mkdir -p ${CONFIG_DIR}
+    echo -e "  ${BLUE}▸${RESET} 创建配置目录 ${DIM}${CONFIG_DIR}${RESET}"
+    mkdir -p "${CONFIG_DIR}"
     if [ -f "${CONFIG_DIR}/config.yml" ]; then
-        echo -e "${YELLOW}⚠️ 检测到已有配置文件，正在安全备份...${PLAIN}"
-        cp -f ${CONFIG_DIR}/config.yml ${BACKUP_CONFIG}
+        status_warn "检测到已有配置文件，正在创建安全备份"
+        cp -f "${CONFIG_DIR}/config.yml" "${BACKUP_CONFIG}"
     fi
     srv_stop 2>/dev/null || true
-    echo -e "${GREEN}✔ 目录构建与备份完成。${PLAIN}"
+    status_ok "目录构建与配置备份完成"
     echo ""
 
-    echo -e " ${BOLD}[步骤 3/4] 拉取核心程序与兼容性自检${PLAIN}"
+    echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}下载核心程序并执行兼容性检查${RESET}"
     show_line
     ARCH=$(get_architecture)
-    echo -e "${BLUE}🌐 正在从 GitHub 官方仓库下载主程序 (架构: ${ARCH})...${PLAIN}"
+    echo -e "  ${BLUE}▸${RESET} 下载核心程序  ${DIM}架构: ${ARCH}${RESET}"
     RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
     
-    mkdir -p ${TEMP_DIR}
+    mkdir -p "${TEMP_DIR}"
     cd ${TEMP_DIR}
 
     if ! wget -t 3 -T 15 -q --no-check-certificate -O XrayR.zip "${RAW_URL}"; then
-        echo -e "${RED}[错误] 下载核心程序失败，请检查网络连接。${PLAIN}"
+        echo -e "${RED}[错误] 下载核心程序失败，请检查网络连接。${RESET}"
         exit 1
     fi
 
-    echo -e "${BLUE}📦 正在安全解压程序压缩包 (使用磁盘缓存防 OOM)...${PLAIN}"
+    echo -e "  ${BLUE}▸${RESET} 解压程序包并进行文件校验"
     unzip -q -o XrayR.zip
     if [[ ! -f "XrayR" ]]; then
-        echo -e "${RED}[错误] 解压未找到主程序文件。${PLAIN}"
+        echo -e "${RED}[错误] 解压未找到主程序文件。${RESET}"
         exit 1
     fi
 
     chmod +x XrayR
     if [[ "$IS_NAT" == "true" ]]; then
-        mv -f XrayR ${BINARY_PATH}
-        echo -e "${GREEN}✔ 主程序已安全部署至分离区: ${BINARY_PATH}${PLAIN}"
+        mv -f XrayR "${BINARY_PATH}"
+        status_ok "核心程序已部署至 ${BINARY_PATH}"
     else
-        mv -f XrayR ${CONFIG_DIR}/XrayR
-        echo -e "${GREEN}✔ 主程序已部署至: ${CONFIG_DIR}/XrayR${PLAIN}"
+        mv -f XrayR "${CONFIG_DIR}/XrayR"
+        status_ok "核心程序已部署至 ${CONFIG_DIR}/XrayR"
     fi
 
-    echo -e "${BLUE}🔬 正在执行二进制程序自检...${PLAIN}"
-    ${BINARY_PATH} --version || ${BINARY_PATH} -version
-    local exec_status=$?
-
-    if [ ${exec_status} -ne 0 ]; then
-        echo -e "${RED}[严重错误] 二进制程序执行失败，退出状态码: ${exec_status}${PLAIN}"
+    echo -e "  ${BLUE}▸${RESET} 执行核心程序自检"
+    if ! "${BINARY_PATH}" --version && ! "${BINARY_PATH}" -version; then
+        echo -e "${RED}[严重错误] 二进制程序执行失败。${RESET}"
         exit 1
     fi
-    echo -e "${GREEN}✔ 二进制自检通过，运行状态正常。${PLAIN}"
+    status_ok "核心程序自检通过"
 
     if [ -f "${BACKUP_CONFIG}" ]; then
-        mv -f ${BACKUP_CONFIG} ${CONFIG_DIR}/config.yml
-        echo -e "${GREEN}✔ 已成功恢复原有配置文件。${PLAIN}"
+        mv -f "${BACKUP_CONFIG}" "${CONFIG_DIR}/config.yml"
+        status_ok "已恢复原有配置文件"
     fi
-    [[ -f "${CONFIG_DIR}/config.yml" ]] && chmod 600 ${CONFIG_DIR}/config.yml
+    [[ -f "${CONFIG_DIR}/config.yml" ]] && chmod 600 "${CONFIG_DIR}/config.yml"
     echo ""
 
-    echo -e " ${BOLD}[步骤 4/4] 注册系统守护进程与快捷指令${PLAIN}"
+    echo -e " ${BOLD}${CYAN}[4/4]${RESET} ${WHITE}注册系统服务与快捷管理命令${RESET}"
     show_line
     if [[ "$INIT_SYSTEM" == "systemd" ]]; then
-        echo -e "${BLUE}⚙️ 正在生成 systemd 服务配置文件...${PLAIN}"
+        echo -e "  ${BLUE}▸${RESET} 创建 systemd 服务单元"
         cat > /etc/systemd/system/xrayr.service <<EOF
 [Unit]
 Description=XrayR Backend Service (Optimized Aesthetic Edition)
@@ -263,11 +281,11 @@ EOF
 
     srv_enable
     
-    echo -e "${BLUE}🔗 正在配置全局快捷管理指令 (xrayr)...${PLAIN}"
+    echo -e "  ${BLUE}▸${RESET} 配置全局管理命令 ${BOLD}xrayr${RESET}"
     local temp_script="${CONFIG_DIR}/xrayr_temp.sh"
     if curl -sL --connect-timeout 15 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "${temp_script}" 2>/dev/null; then
         if [[ -s "${temp_script}" ]]; then
-            mv -f "${temp_script}" ${SYSTEM_CMD_PATH}
+            mv -f "${temp_script}" "${SYSTEM_CMD_PATH}"
             chmod +x ${SYSTEM_CMD_PATH}
             ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
         fi
@@ -275,8 +293,12 @@ EOF
     rm -f "${temp_script}"
 
     show_line
-    echo -e "${GREEN}${BOLD}🎉 XrayR 安装与部署全部成功完成！${PLAIN}"
-    echo -e "${CYAN}💡 提示: 随时在终端输入命令 ${BOLD}xrayr${PLAIN}${CYAN} 即可呼出管理面板。${PLAIN}"
+    echo
+    printf '%b\n' "${GREEN}${BOLD}╭────────────────────────────────────────────────────────────────────╮${RESET}"
+    printf '%b\n' "${GREEN}${BOLD}│${RESET}  🎉 XrayR 安装与部署已成功完成！                              ${GREEN}${BOLD}│${RESET}"
+    printf '%b\n' "${GREEN}${BOLD}╰────────────────────────────────────────────────────────────────────╯${RESET}"
+    echo
+    echo -e "  ${DIM}以后可直接输入${RESET} ${BOLD}${CYAN}xrayr${RESET} ${DIM}打开管理面板${RESET}"
     show_line
     sleep 2
     show_manage_menu
@@ -285,52 +307,66 @@ EOF
 uninstall_xrayr() {
     srv_stop
     srv_disable
-    rm -rf ${CONFIG_DIR} ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR /etc/systemd/system/xrayr.service
+    rm -rf "${CONFIG_DIR}" "${SYSTEM_CMD_PATH}" /usr/local/bin/XrayR /etc/systemd/system/xrayr.service
     [[ -f "/usr/local/bin/xrayr-core" ]] && rm -f /usr/local/bin/xrayr-core
     [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl daemon-reload >/dev/null 2>&1
-    echo -e "${GREEN}卸载完成。${PLAIN}"
+    echo -e "${GREEN}卸载完成。${RESET}"
     exit 0
 }
 
 show_manage_menu() {
     while true; do
         show_banner
+
         if srv_is_active; then
-            echo -e " 🟢 运行状态: ${GREEN}正常运行中${PLAIN}"
+            printf '%b\n' "  ${GREEN}●${RESET} 服务状态  ${GREEN}${BOLD}运行中${RESET}"
         else
-            echo -e " 🔴 运行状态: ${RED}已停止${PLAIN}"
+            printf '%b\n' "  ${RED}●${RESET} 服务状态  ${RED}${BOLD}已停止${RESET}"
         fi
+
+        echo
+        printf '%b\n' "${BOLD}${WHITE}服务操作${RESET}"
+        echo -e "  ${GREEN}1${RESET}  启动服务       ${DIM}Start${RESET}"
+        echo -e "  ${GREEN}2${RESET}  停止服务       ${DIM}Stop${RESET}"
+        echo -e "  ${GREEN}3${RESET}  重启服务       ${DIM}Restart${RESET}"
+        echo -e "  ${GREEN}4${RESET}  查看实时日志   ${DIM}Logs${RESET}"
+
+        echo
+        printf '%b\n' "${BOLD}${WHITE}配置管理${RESET}"
+        echo -e "  ${GREEN}6${RESET}  编辑配置文件   ${DIM}${CONFIG_DIR}/config.yml${RESET}"
+
+        echo
+        printf '%b\n' "${BOLD}${WHITE}系统管理${RESET}"
+        echo -e "  ${RED}10${RESET} 卸载 XrayR"
+        echo -e "  ${RED}0${RESET}  退出面板"
+
         show_line
-        echo -e "  ${GREEN}1.${PLAIN} 启动服务"
-        echo -e "  ${GREEN}2.${PLAIN} 停止服务"
-        echo -e "  ${GREEN}3.${PLAIN} 重启服务"
-        echo -e "  ${GREEN}4.${PLAIN} 查看日志"
-        echo -e "  ${GREEN}6.${PLAIN} 修改配置文件 (${CONFIG_DIR}/config.yml)"
-        echo -e "  ${RED}10.${PLAIN} 卸载"
-        echo -e "  ${RED}0.${PLAIN} 退出"
-        show_line
-        read -p " 请选择 [0-10]: " menu_num
+        read -r -p "  请输入选项 [0/1/2/3/4/6/10]: " menu_num
+        echo
+
         case "${menu_num:-}" in
-            1) srv_start; sleep 1.5 ;;
-            2) srv_stop; sleep 1.5 ;;
-            3) srv_restart; sleep 1.5 ;;
+            1) srv_start; status_ok "服务启动命令已执行"; pause_screen ;;
+            2) srv_stop; status_ok "服务停止命令已执行"; pause_screen ;;
+            3) srv_restart; status_ok "服务重启命令已执行"; pause_screen ;;
             4) srv_logs ;;
             6)
-                if [ -f "${CONFIG_DIR}/config.yml" ]; then
-                    nano ${CONFIG_DIR}/config.yml || vi ${CONFIG_DIR}/config.yml
+                if [[ -f "${CONFIG_DIR}/config.yml" ]]; then
+                    nano "${CONFIG_DIR}/config.yml" || vi "${CONFIG_DIR}/config.yml"
                     srv_restart
+                    status_ok "配置已保存，服务已重启"
                 else
-                    echo -e "${RED}[错误] 配置文件不存在${PLAIN}"
+                    status_error "配置文件不存在"
                 fi
-                sleep 1.5
+                pause_screen
                 ;;
             10) uninstall_xrayr ;;
-            0) exit 0 ;;
+            0) clear; exit 0 ;;
+            *) status_warn "无效选项，请重新输入"; sleep 1 ;;
         esac
     done
 }
 
-SCRIPT_NAME=$(basename "$0")
+SCRIPT_NAME="$(basename "$0")"
 if [[ "$SCRIPT_NAME" == "xrayr" || "$SCRIPT_NAME" == "XrayR" || "${1:-}" == "menu" ]]; then
     show_manage_menu
 else
