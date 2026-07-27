@@ -2,23 +2,23 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本
-# 版本: v1.0.2
+# XrayR 智能安装与管理脚本 (统一 /etc/XrayR 目录版)
+# 版本: v1.0.3
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
 set -Eeuo pipefail
 
 # -----------------------------
-# 基础配置
+# 基础配置 (统一安装至 /etc/XrayR)
 # -----------------------------
 GITHUB_USER="Deeye"
 REPO_NAME="XrayR-AutoInstall"
 RELEASE_VERSION="v1.0.0"
 
 CONFIG_DIR="/etc/XrayR"
+BINARY_PATH="${CONFIG_DIR}/XrayR"
 SYSTEM_CMD_PATH="/usr/local/bin/xrayr"
-NAT_BINARY_PATH="/usr/local/bin/xrayr-core"
 SERVICE_FILE="/etc/systemd/system/xrayr.service"
 
 BACKUP_CONFIG="${CONFIG_DIR}/xrayr_config_bak.yml"
@@ -26,7 +26,6 @@ TEMP_DIR="${CONFIG_DIR}/.xrayr_install_tmp"
 
 IS_NAT=false
 INIT_SYSTEM=""
-BINARY_PATH=""
 
 # -----------------------------
 # 终端颜色
@@ -51,7 +50,7 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (NAT & VPS 兼容版)             ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (统一目录版)                  ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}│${RESET} ${DIM}稳定 · 简洁 · 高效 · 自动部署${RESET}                         ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
@@ -206,15 +205,9 @@ srv_logs() {
 # -----------------------------
 get_architecture() {
     case "$(uname -m)" in
-        x86_64|amd64)
-            echo "64"
-            ;;
-        aarch64|arm64)
-            echo "arm64"
-            ;;
-        armv7l|armv6l)
-            echo "arm"
-            ;;
+        x86_64|amd64) echo "64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        armv7l|armv6l) echo "arm" ;;
         *)
             status_error "不支持的 CPU 架构: $(uname -m)"
             exit 1
@@ -223,7 +216,7 @@ get_architecture() {
 }
 
 detect_environment() {
-    section_title "环境检测" "识别网络环境与部署方式"
+    section_title "环境检测" "识别网络环境与部署位置"
 
     local local_ip=""
     local public_ip=""
@@ -249,14 +242,11 @@ detect_environment() {
 
     if [[ "${IS_NAT}" == "true" ]]; then
         printf '%b\n' "  ${YELLOW}●${RESET} 网络环境  ${BOLD}NAT / 内网环境${RESET}"
-        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  二进制与配置分离"
-        BINARY_PATH="${NAT_BINARY_PATH}"
     else
         printf '%b\n' "  ${GREEN}●${RESET} 网络环境  ${BOLD}独立公网服务器${RESET}"
-        printf '%b\n' "  ${DIM}└─${RESET} 部署方式  标准部署"
-        BINARY_PATH="${CONFIG_DIR}/XrayR"
     fi
 
+    printf '%b\n' "  ${DIM}└─${RESET} 安装路径  ${CONFIG_DIR}"
     printf '%b\n' "  ${DIM}└─${RESET} 初始化系统  ${INIT_SYSTEM}"
     show_line
 }
@@ -354,7 +344,7 @@ download_and_extract() {
     printf '%b\n' "  ${BLUE}▸${RESET} 检查系统资源"
     check_resources
 
-    printf '%b\n' "  ${BLUE}▸${RESET} 解压程序包 ${DIM}使用独立临时目录，避免覆盖系统文件${RESET}"
+    printf '%b\n' "  ${BLUE}▸${RESET} 解压程序包 ${DIM}解压至 ${CONFIG_DIR}${RESET}"
 
     rm -rf "${extract_dir}"
     mkdir -p "${extract_dir}"
@@ -380,12 +370,11 @@ download_and_extract() {
 }
 
 # -----------------------------
-# 二进制自检 (修复版本指令兼容)
+# 二进制自检 (已适配子命令)
 # -----------------------------
 check_binary() {
     printf '%b\n' "  ${BLUE}▸${RESET} 执行核心程序自检"
 
-    # XrayR 的正确版本检查方式为子命令: XrayR version
     if "${BINARY_PATH}" version >/dev/null 2>&1 || \
        "${BINARY_PATH}" --version >/dev/null 2>&1 || \
        "${BINARY_PATH}" -version >/dev/null 2>&1; then
@@ -552,8 +541,9 @@ uninstall_xrayr() {
     srv_stop
     srv_disable
 
+    # 彻底清理目录与快捷方式
     rm -rf "${CONFIG_DIR}"
-    rm -f "${SYSTEM_CMD_PATH}" "${NAT_BINARY_PATH}" /usr/local/bin/XrayR
+    rm -f "${SYSTEM_CMD_PATH}" /usr/local/bin/XrayR /usr/local/bin/xrayr-core
 
     if [[ "${INIT_SYSTEM}" == "systemd" ]]; then
         rm -f "${SERVICE_FILE}"
@@ -562,7 +552,7 @@ uninstall_xrayr() {
         rm -f /etc/init.d/xrayr
     fi
 
-    status_ok "XrayR 已卸载"
+    status_ok "XrayR 已完全卸载"
     exit 0
 }
 
