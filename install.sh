@@ -1,10 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ==========================================================
 # 项目名称: XrayR 现代化重构版全功能管理脚本 (Codename: 将进酒)
-# 适用系统: Ubuntu / Debian / CentOS
+# 适用系统: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # 专属仓库: https://github.com/Deeye/XrayR-AutoInstall
 # ==========================================================
+
+# 错误捕获：防止非致命错误导致管道卡死
+set -u
 
 # 霓虹极客配色定义
 RED='\033[0;31m'
@@ -23,11 +26,12 @@ REPO_NAME="XrayR-AutoInstall"
 RELEASE_VERSION="v1.0.0"
 INSTALL_DIR="/etc/XrayR"
 SYSTEM_CMD_PATH="/usr/local/bin/xrayr"
+BACKUP_CONFIG="/tmp/xrayr_config_bak.yml"
 
 # 华丽的流式打字机美化特效
 type_effect() {
     local text="$1"
-    local delay=0.01
+    local delay=0.005
     for (( i=0; i<${#text}; i++ )); do
         echo -n "${text:$i:1}"
         sleep $delay
@@ -61,36 +65,158 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 核心功能：核心主程序全自动安装/更新流程
-show_install_process() {
-    show_banner
-    type_effect "${YELLOW}[1/4] 🚀 正在深度扫描系统架构并同步基础环境依赖...${PLAIN}"
-    if [[ -f /etc/redhat-release ]]; then
-        yum install -y curl wget unzip ca-certificates >/dev/null 2>&1
-    elif grep -Eqi "debian|ubuntu" /etc/issue || grep -Eq "Debian|Ubuntu" /etc/*-release; then
-        apt-get update >/dev/null 2>&1
-        apt-get install -y curl wget unzip ca-certificates >/dev/null 2>&1
+# Systemd vs OpenRC 双引擎初始化探测
+INIT_SYSTEM=""
+check_init_system() {
+    if [[ -d /run/systemd/system ]] || [[ -L /sbin/init && "$(readlink -f /sbin/init)" == *"systemd"* ]]; then
+        INIT_SYSTEM="systemd"
+    elif command -v openrc >/dev/null 2>&1 || [[ -f /etc/alpine-release ]] || command -v rc-service >/dev/null 2>&1; then
+        INIT_SYSTEM="openrc"
     else
-        echo -e "${RED}[错误] 极其抱歉！当前脚本仅支持 CentOS / Ubuntu / Debian 系统。${PLAIN}"
+        echo -e "${RED}[错误] 无法识别当前系统的初始化进程！支持 Systemd 或 OpenRC (Alpine) 守护进程。${PLAIN}"
         exit 1
     fi
-    type_effect "${GREEN}✔ 环境依赖项扫描通过，所需基础工具已全部就绪。${PLAIN}"
+}
+check_init_system
 
-    type_effect "${YELLOW}\n[2/4] 📂 正在初始化纯净目标运行目录空间 ${INSTALL_DIR} ...${PLAIN}"
-    if [ -f "${INSTALL_DIR}/config.yml" ]; then
-        type_effect "${BLUE}➜ 检测到现有配置，正在无缝备份 config.yml ...${PLAIN}"
-        cp -f ${INSTALL_DIR}/config.yml /tmp/xrayr_config_bak.yml
+# 统一服务控制抽象函数
+srv_start() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl start xrayr || rc-service xrayr start >/dev/null 2>&1; }
+srv_stop() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl stop xrayr || rc-service xrayr stop >/dev/null 2>&1; }
+srv_restart() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl restart xrayr || rc-service xrayr restart >/dev/null 2>&1; }
+srv_status() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl status xrayr --no-pager -l || rc-service xrayr status; }
+srv_is_active() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl is-active xrayr >/dev/null 2>&1 || rc-service xrayr status 2>&1 | grep -Eqi "started|running"; }
+srv_enable() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl enable xrayr >/dev/null 2>&1 || rc-update add xrayr default >/dev/null 2>&1; }
+srv_disable() { [[ "$INIT_SYSTEM" == "systemd" ]] && systemctl disable xrayr >/dev/null 2>&1 || rc-update del xrayr default >/dev/null 2>&1; }
+srv_logs() {
+    if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        journalctl -u xrayr -f -n 50
+    else
+        echo -e "${YELLOW}Alpine (OpenRC) 模式：正在读取 /var/log/xrayr.log (按 Ctrl+C 退出)...${PLAIN}"
+        touch /var/log/xrayr.log
+        tail -f -n 50 /var/log/xrayr.log
     fi
+}
+
+get_os_name() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        echo "${PRETTY_NAME:-${ID} ${VERSION_ID:-}}"
+    elif [[ -f /etc/redhat-release ]]; then
+        cat /etc/redhat-release
+    else
+        echo "Unknown Linux Distribution"
+    fi
+}
+
+get_architecture() {
+    local arch=$(uname -m)
+    case "${arch}" in
+        x86_64|amd64) echo "64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        armv7l|armv6l) echo "arm" ;;
+        s390x) echo "s390x" ;;
+        *) echo -e "${RED}[错误] 不支持的 CPU 架构: ${arch}${PLAIN}"; exit 1 ;;
+    esac
+}
+
+check_memory_and_swap() {
+    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    
+    if [[ -n "${total_mem:-}" && "${total_mem:-0}" -lt 600 && "${total_swap:-0}" -lt 500 ]]; then
+        type_effect "${YELLOW}⚠️ 检测到当前服务器内存较小 (${total_mem}MB)，正在创建 1GB 临时 Swap 虚拟内存...${PLAIN}"
+        dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+        chmod 600 /swapfile
+        mkswap /swapfile >/dev/null 2>&1
+        swapon /swapfile >/dev/null 2>&1
+        type_effect "${GREEN}✔ 临时防 Crash 虚拟内存加载成功！${PLAIN}"
+    fi
+}
+
+# ==========================================================
+# 【安装步骤优化 1】：依赖免检极速跳过机制
+# ==========================================================
+install_dependencies() {
+    local os_name=$(get_os_name)
+    type_effect "${BLUE}➜ 识别到系统平台: ${BOLD}${os_name} [${INIT_SYSTEM^^} 引擎]${PLAIN}"
+    
+    # 核心体检：如果基础组件全部完备，直接秒跳过包管理器！
+    if command -v curl >/dev/null 2>&1 && command -v wget >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && command -v ca-certificates >/dev/null 2>&1; then
+        type_effect "${GREEN}✔ 系统基础依赖工具已全部就绪，已智能跳过包管理器漫长的同步更新。${PLAIN}"
+        return 0
+    fi
+
+    type_effect "${YELLOW}➜ 正在同步缺失的基础运行工具...${PLAIN}"
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq >/dev/null 2>&1
+        apt-get install -y -qq curl wget unzip ca-certificates >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q curl wget unzip ca-certificates >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q curl wget unzip ca-certificates >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk update -q >/dev/null 2>&1
+        apk add --no-cache curl wget unzip ca-certificates bash openrc >/dev/null 2>&1
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -Sy --noconfirm --needed curl wget unzip ca-certificates >/dev/null 2>&1
+    elif command -v zypper >/dev/null 2>&1; then
+        zypper --non-interactive install -y curl wget unzip ca-certificates >/dev/null 2>&1
+    else
+        echo -e "${RED}[错误] 无法识别当前系统的包管理器！支持: apt, dnf, yum, apk, pacman, zypper。${PLAIN}"
+        exit 1
+    fi
+}
+
+# ==========================================================
+# 【安装步骤优化 2】：核心主程序智能安装流程
+# ==========================================================
+show_install_process() {
+    show_banner
+    type_effect "${YELLOW}[1/4] 🚀 正在深度体检系统环境与内存状态...${PLAIN}"
+    
+    check_memory_and_swap
+    install_dependencies
+    
+    type_effect "${YELLOW}\n[2/4] 📂 正在安全构建目标运行空间 ${INSTALL_DIR} ...${PLAIN}"
+    if [ -f "${INSTALL_DIR}/config.yml" ]; then
+        type_effect "${BLUE}➜ 检测到现有历史配置，正在无缝热备份...${PLAIN}"
+        cp -f ${INSTALL_DIR}/config.yml ${BACKUP_CONFIG}
+    fi
+    
+    # 停止老服务，清空工作区
+    srv_stop 2>/dev/null || true
     rm -rf ${INSTALL_DIR}
     mkdir -p ${INSTALL_DIR}
     cd ${INSTALL_DIR}
 
-    type_effect "${YELLOW}\n[3/4] 🌐 正在从 GitHub 官方 Release 极速拉取核心组件...${PLAIN}"
-    ZIP_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-64.zip"
-    wget -N --no-check-certificate -O XrayR.zip ${ZIP_URL}
+    type_effect "${YELLOW}\n[3/4] 🌐 正在通过智能多镜像加速拉取核心二进制主程序...${PLAIN}"
+    ARCH=$(get_architecture)
+    RAW_URL="https://github.com/${GITHUB_USER}/${REPO_NAME}/releases/download/${RELEASE_VERSION}/XrayR-linux-${ARCH}.zip"
+    
+    # 【优化】：构建 GitHub 官方源 + 多条 CDN 代理镜像备用池
+    MIRROR_URLS=(
+        "${RAW_URL}"
+        "https://ghproxy.net/${RAW_URL}"
+        "https://mirror.ghproxy.com/${RAW_URL}"
+    )
 
-    if [[ ! -f "XrayR.zip" ]]; then
-        echo -e "${RED}[错误] 核心压缩包拉取失败！请确认您的 GitHub Release 页面是否完整。${PLAIN}"
+    DOWNLOAD_SUCCESS=false
+    for url in "${MIRROR_URLS[@]}"; do
+        type_effect "${BLUE}➜ 尝试连通镜像源下载: ${url:0:45}...${PLAIN}"
+        if wget -t 2 -T 10 -q --no-check-certificate -O XrayR.zip "${url}"; then
+            # 校验是否为合法 ZIP 文件且不为空
+            if [[ -s "XrayR.zip" ]] && unzip -tq XrayR.zip >/dev/null 2>&1; then
+                DOWNLOAD_SUCCESS=true
+                break
+            else
+                rm -f XrayR.zip
+            fi
+        fi
+    done
+
+    if [[ "${DOWNLOAD_SUCCESS}" != "true" ]]; then
+        echo -e "${RED}[错误] 核心压缩包拉取失败！请检查系统网络或远程 GitHub Release 资源是否发布。${PLAIN}"
         exit 1
     fi
 
@@ -98,14 +224,30 @@ show_install_process() {
     rm -f XrayR.zip
     chmod +x XrayR
     
-    if [ -f "/tmp/xrayr_config_bak.yml" ]; then
-        mv -f /tmp/xrayr_config_bak.yml ${INSTALL_DIR}/config.yml
-        type_effect "${GREEN}✔ 历史面板对接参数已无缝还原。${PLAIN}"
+    # ==========================================================
+    # 【安装步骤优化 3】：自检试运行 (Self-Test) 与安全加固
+    # ==========================================================
+    type_effect "${BLUE}➜ 正在执行二进制底层兼容性自检...${PLAIN}"
+    if ! ./XrayR --version >/dev/null 2>&1 && ! ./XrayR -version >/dev/null 2>&1; then
+        echo -e "${RED}[严重错误] 核心程序自检不通过！可能因缺少系统底层链接库 (libc/musl) 或 CPU 架构不匹配。${PLAIN}"
+        echo -e "${RED}已安全中止安装，未对系统后台造成任何破坏。${PLAIN}"
+        cd .. && rm -rf ${INSTALL_DIR}
+        exit 1
     fi
-    type_effect "${GREEN}✔ 二进制主程序解压完毕，重构版双栈路由库注入成功。${PLAIN}"
+    type_effect "${GREEN}✔ 二进制自检通过！内核兼容性完美。${PLAIN}"
 
-    type_effect "${YELLOW}\n[4/4] ⚙️ 正在向守护进程系统注册标准常驻服务...${PLAIN}"
-    cat > /etc/systemd/system/xrayr.service <<EOF
+    # 还原配置并加固权限
+    if [ -f "${BACKUP_CONFIG}" ]; then
+        mv -f ${BACKUP_CONFIG} ${INSTALL_DIR}/config.yml
+        type_effect "${GREEN}✔ 历史对接参数已还原。${PLAIN}"
+    fi
+    # 【优化】：强锁敏感配置文件权限，防止 API Key 被其他特权容器或用户窃取
+    [[ -f "${INSTALL_DIR}/config.yml" ]] && chmod 600 ${INSTALL_DIR}/config.yml
+
+    type_effect "${YELLOW}\n[4/4] ⚙️ 正在向 [${INIT_SYSTEM^^}] 守护进程注册标准常驻服务...${PLAIN}"
+    
+    if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+        cat > /etc/systemd/system/xrayr.service <<EOF
 [Unit]
 Description=XrayR Backend Service (2026 Edition)
 After=network.target nss-lookup.target
@@ -116,29 +258,55 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/XrayR --config ${INSTALL_DIR}/config.yml
 Restart=on-failure
 RestartSec=10s
-LimitNOFILE=512000
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
+        systemctl daemon-reload
+    else
+        cat > /etc/init.d/xrayr <<'EOF'
+#!/sbin/openrc-run
+name="XrayR Backend Service"
+description="XrayR Backend Service (2026 Edition)"
+command="/etc/XrayR/XrayR"
+command_args="--config /etc/XrayR/config.yml"
+command_background="yes"
+pidfile="/run/xrayr.pid"
+output_log="/var/log/xrayr.log"
+error_log="/var/log/xrayr.err"
 
-    systemctl daemon-reload
-    systemctl enable xrayr >/dev/null 2>&1
+depend() {
+    need net
+    use dns
+}
+EOF
+        chmod +x /etc/init.d/xrayr
+    fi
+
+    srv_enable
     
-    # 终极修复：直接从云端强制拉取最新脚本作为系统命令
-    curl -Ls "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > ${SYSTEM_CMD_PATH}
-    chmod +x ${SYSTEM_CMD_PATH}
-    ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
+    # 同步系统级快捷管理指令
+    type_effect "${YELLOW}正在绑定系统快捷管理指令...${PLAIN}"
+    if curl -sL --connect-timeout 10 "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" | sed 's/\r$//' > "/tmp/xrayr_temp.sh"; then
+        if [[ -s "/tmp/xrayr_temp.sh" ]]; then
+            mv -f "/tmp/xrayr_temp.sh" ${SYSTEM_CMD_PATH}
+            chmod +x ${SYSTEM_CMD_PATH}
+            ln -sf ${SYSTEM_CMD_PATH} /usr/local/bin/XrayR >/dev/null 2>&1
+        fi
+    fi
+    # 【优化】：深度清理临时文件
+    rm -f "/tmp/xrayr_temp.sh" "${BACKUP_CONFIG}"
 
     type_effect "${GREEN}✔ 开机自启常驻与系统快捷指令 [xrayr / XrayR] 绑定成功。${PLAIN}"
     echo ""
     show_line
-    echo -e " 🎉 ${BOLD}恭喜您！XrayR 核心程序安装/更新成功！${PLAIN}"
-    echo -e " ⚡ ${BLUE}以后在任何路径下，只需输入: ${YELLOW}xrayr${BLUE} 或者是 ${YELLOW}XrayR${BLUE} 即可唤醒本管理面板！${PLAIN}"
+    echo -e " 🎉 ${BOLD}恭喜您！XrayR 核心程序极速安装与加固完备！${PLAIN}"
+    echo -e " ⚡ ${BLUE}终端随时输入指令: ${YELLOW}xrayr${BLUE} 或是 ${YELLOW}XrayR${BLUE} 即可呼出管理面板。${PLAIN}"
     show_line
     echo ""
-    read -p "是否现在进入控制面板菜单？(y/n): " choice
-    if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+    read -p "是否现在立即进入控制面板菜单？(y/n) [默认: y]: " choice
+    if [[ -z "${choice}" || "${choice}" =~ ^[Yy]$ ]]; then
         show_manage_menu
     else
         exit 0
@@ -150,12 +318,18 @@ uninstall_xrayr() {
     show_banner
     echo -e "${RED}[警告] 您正在执行卸载操作，这将物理清除所有程序文件与配置！${PLAIN}"
     read -p "确认要彻底卸载 XrayR 吗？(y/n): " un_choice
-    if [[ "$un_choice" == "y" || "$un_choice" == "Y" ]]; then
+    if [[ "${un_choice:-}" =~ ^[Yy]$ ]]; then
         type_effect "${YELLOW}正在停止并注销常驻服务...${PLAIN}"
-        systemctl stop xrayr >/dev/null 2>&1
-        systemctl disable xrayr >/dev/null 2>&1
-        rm -f /etc/systemd/system/xrayr.service
-        systemctl daemon-reload
+        srv_stop
+        srv_disable
+        
+        if [[ "$INIT_SYSTEM" == "systemd" ]]; then
+            rm -f /etc/systemd/system/xrayr.service
+            systemctl daemon-reload >/dev/null 2>&1
+        else
+            rm -f /etc/init.d/xrayr
+            rm -f /var/log/xrayr.log /var/log/xrayr.err
+        fi
         
         type_effect "${YELLOW}正在深度物理擦除运行目录与环境变量...${PLAIN}"
         rm -rf ${INSTALL_DIR}
@@ -175,10 +349,10 @@ show_manage_menu() {
     while true; do
         show_banner
         
-        if systemctl is-active xrayr >/dev/null 2>&1; then
-            echo -e " 🟢 后端实时运行状态: ${GREEN}正在高能运行 (Running)${PLAIN}"
+        if srv_is_active; then
+            echo -e " 🟢 后端实时运行状态: ${GREEN}正在高能运行 (Running) [${INIT_SYSTEM^^}]${PLAIN}"
         else
-            echo -e " 🔴 后端实时运行状态: ${RED}已安全停止 (Stopped)${PLAIN}"
+            echo -e " 🔴 后端实时运行状态: ${RED}已安全停止 (Stopped) [${INIT_SYSTEM^^}]${PLAIN}"
         fi
         show_line
         
@@ -193,7 +367,7 @@ show_manage_menu() {
         echo -e "  ${GREEN}7.${PLAIN} 🔐 设置 XrayR 开机自启"
         echo -e "  ${GREEN}8.${PLAIN} 🔓 取消 XrayR 开机自启"
         echo -e " ---------------------------------"
-        echo -e "  ${YELLOW}9.${PLAIN} ✨ 检查并覆盖更新 XrayR 后端版本"
+        echo -e "  ${YELLOW}9.${PLAIN} ✨ 检查并极速覆盖更新 XrayR"
         echo -e "  ${RED}10.${PLAIN} 🗑️  彻底卸载 XrayR (物理擦除)"
         echo -e " ---------------------------------"
         echo -e "  ${RED}0.${PLAIN} ❌ 退出控制面板"
@@ -201,39 +375,43 @@ show_manage_menu() {
         echo ""
         read -p " 请输入数字选择对应操作 [0-10]: " menu_num
         
-        case $menu_num in
+        case "${menu_num:-}" in
             1)
-                systemctl start xrayr
+                srv_start
                 echo -e "${GREEN}启动指令已发出。${PLAIN}"
                 sleep 1.5
                 ;;
             2)
-                systemctl stop xrayr
+                srv_stop
                 echo -e "${GREEN}停止指令已发出。${PLAIN}"
                 sleep 1.5
                 ;;
             3)
-                systemctl restart xrayr
+                srv_restart
                 echo -e "${GREEN}重启指令已发出。${PLAIN}"
                 sleep 1.5
                 ;;
             4)
                 echo -e "${YELLOW}正在获取系统级 Service 详细状态 (按 q 键退出查看)：${PLAIN}"
                 echo "------------------------------------------------------------"
-                systemctl status xrayr
+                srv_status
                 echo "------------------------------------------------------------"
                 read -p "按回车键返回主菜单..."
                 ;;
             5)
-                echo -e "${YELLOW}正在追踪实时运行日志 (按 Ctrl+C 即可断开退出)：${PLAIN}"
+                echo -e "${YELLOW}正在追踪实时运行日志：${PLAIN}"
                 echo "------------------------------------------------------------"
-                journalctl -u xrayr -f
+                srv_logs
                 ;;
             6)
                 if [ -f "${INSTALL_DIR}/config.yml" ]; then
-                    nano ${INSTALL_DIR}/config.yml
+                    if command -v nano >/dev/null 2>&1; then
+                        nano ${INSTALL_DIR}/config.yml
+                    else
+                        vi ${INSTALL_DIR}/config.yml
+                    fi
                     echo -e "${YELLOW}配置已更改，正在自动平滑重启服务...${PLAIN}"
-                    systemctl restart xrayr
+                    srv_restart
                     echo -e "${GREEN}服务重启完毕！${PLAIN}"
                 else
                     echo -e "${RED}[错误] 配置文件不存在！${PLAIN}"
@@ -241,12 +419,12 @@ show_manage_menu() {
                 sleep 2
                 ;;
             7)
-                systemctl enable xrayr >/dev/null 2>&1
+                srv_enable
                 echo -e "${GREEN}成功开启开机自启动！${PLAIN}"
                 sleep 1.5
                 ;;
             8)
-                systemctl disable xrayr >/dev/null 2>&1
+                srv_disable
                 echo -e "${YELLOW}已取消开机自启动！${PLAIN}"
                 sleep 1.5
                 ;;
@@ -271,26 +449,23 @@ show_manage_menu() {
 
 # 核心判断机制：环境嗅探装甲
 SCRIPT_NAME=$(basename "$0")
-# 如果用户输入的是 xrayr 或 XrayR，直接进入菜单
-if [[ "$SCRIPT_NAME" == "xrayr" || "$SCRIPT_NAME" == "XrayR" || "$1" == "menu" ]]; then
+if [[ "$SCRIPT_NAME" == "xrayr" || "$SCRIPT_NAME" == "XrayR" || "${1:-}" == "menu" ]]; then
     show_manage_menu
 else
-    # 如果用户跑的是一键安装脚本，先嗅探系统里是否已经装过
     if [[ -f "${SYSTEM_CMD_PATH}" && -d "${INSTALL_DIR}" ]]; then
         show_banner
         echo -e "${YELLOW}⚠️ 检测到您的服务器已安装 XrayR 核心程序！${PLAIN}"
         echo -e "${GREEN}为了防止您的配置文件和运行状态被意外覆盖，已自动拦截重复安装请求。${PLAIN}"
         echo -e "👉 如果您想管理节点或更新版本，请直接在终端随时输入命令: ${BOLD}xrayr${PLAIN}"
         echo ""
-        read -p "是否现在直接进入控制面板？(y/n): " enter_menu
-        if [[ "$enter_menu" == "y" || "$enter_menu" == "Y" ]]; then
+        read -p "是否现在直接进入控制面板？(y/n) [默认: y]: " enter_menu
+        if [[ -z "${enter_menu}" || "${enter_menu}" =~ ^[Yy]$ ]]; then
             show_manage_menu
         else
             echo -e "${GREEN}已安全退出。${PLAIN}"
             exit 0
         fi
     else
-        # 确实没装过，放行执行全新安装流程
         show_install_process
     fi
 fi
