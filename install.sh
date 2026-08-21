@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 (线路优化与重装支持版)
-# 版本: v1.0.8
+# XrayR 智能安装与管理脚本 (断点续传与高容错版)
+# 版本: v1.0.9
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -27,13 +27,13 @@ TEMP_DIR="${CONFIG_DIR}/.xrayr_install_tmp"
 IS_NAT=false
 INIT_SYSTEM=""
 
-# 加速镜像源列表 (按顺序自动轮询尝试)
+# 加速镜像源列表 (按顺序轮询并支持断点续传)
 GH_PROXIES=(
     "https://ghproxy.net/"
     "https://mirror.ghproxy.com/"
     "https://gh-proxy.com/"
     "https://hub.gitmirror.com/"
-    "" # 留空代表直连 GitHub 官方源兜底
+    "" # 官方源直连兜底
 )
 
 # -----------------------------
@@ -60,7 +60,7 @@ show_line() {
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
     printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (多镜像加速 · 线路高容错版)    ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}断点续传 · 自动故障转移 · 支持一键无损重装${RESET}                ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}支持持久化断点续传 · 自动故障转移 · 无损覆盖重装${RESET}          ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -300,11 +300,12 @@ drop_caches_safe() {
 }
 
 # -----------------------------
-# 网络弹性下载器 (支持镜像轮询与断点续传)
+# 智能断点续传下载器
 # -----------------------------
 download_file_resilient() {
     local target_path="$1"
     local raw_url="$2"
+    local part_file="${target_path}.part"
     local download_success=false
 
     for proxy in "${GH_PROXIES[@]}"; do
@@ -312,21 +313,40 @@ download_file_resilient() {
         local proxy_tag="${proxy:-官方源直连}"
         
         printf '%b\n' "  ${BLUE}▸${RESET} 尝试源: ${DIM}${proxy_tag}${RESET}"
-        
-        if curl -4 -fL -C - --retry 3 --retry-delay 1 --connect-timeout 8 --max-time 180 \
-            -o "${target_path}" "${current_url}"; then
-            if [[ -s "${target_path}" ]]; then
-                download_success=true
-                status_ok "下载成功 [${proxy_tag}]"
-                break
+
+        # 每个镜像源支持最多 5 次断点续传重试
+        local attempt=1
+        while [[ ${attempt} -le 5 ]]; do
+            if [[ -f "${part_file}" && -s "${part_file}" ]]; then
+                local current_bytes
+                current_bytes="$(wc -c < "${part_file}" 2>/dev/null || echo 0)"
+                printf '%b\n' "    ${DIM}↳ 正在从第 ${current_bytes} 字节续传 (重试 ${attempt}/5)...${RESET}"
             fi
-        fi
-        status_warn "当前线路下载失败或受阻，自动切换下一镜像..."
-        rm -f "${target_path}" 2>/dev/null || true
+
+            # 使用 -C - 开启自动断点续传
+            if curl -4 -fL -C - --connect-timeout 8 --max-time 180 \
+                -o "${part_file}" "${current_url}"; then
+                
+                # 校验下载的 ZIP 包是否完整有效
+                if [[ -s "${part_file}" ]] && unzip -tq "${part_file}" >/dev/null 2>&1; then
+                    mv -f "${part_file}" "${target_path}"
+                    download_success=true
+                    status_ok "核心文件下载并校验通过 [${proxy_tag}]"
+                    break 2
+                fi
+            fi
+
+            ((attempt++))
+            sleep 1
+        done
+
+        status_warn "当前镜像节点重试耗尽或校验未通过，切换下一个源..."
+        # 换源前清理不兼容的 part 文件，避免由于各代理源 ETag/Header 不一致导致拼接异常
+        rm -f "${part_file}" 2>/dev/null || true
     done
 
     if [[ "${download_success}" != "true" ]]; then
-        status_error "所有可用镜像下载均失败，请检查机器网络或稍后重试。"
+        status_error "所有源均下载失败，请检查机器网络或防火墙连通性。"
         exit 1
     fi
 }
@@ -349,7 +369,7 @@ download_and_extract() {
 
     printf '%b\n' "  ${BLUE}▸${RESET} 执行序列化流式解压 ${DIM}(单文件流控，防止内存暴涨重启)${RESET}"
 
-    # 1. 如果已有 config.yml，备份
+    # 1. 备份已有 config.yml
     if [[ -f "${CONFIG_DIR}/config.yml" ]]; then
         cp -f "${CONFIG_DIR}/config.yml" "${BACKUP_CONFIG}"
     fi
@@ -395,7 +415,7 @@ download_and_extract() {
     chmod 644 "${CONFIG_DIR}"/*.json "${CONFIG_DIR}"/*.dat "${CONFIG_DIR}"/debug.log 2>/dev/null || true
 
     # 7. 清理压缩包与缓存
-    rm -f "${zip_file}"
+    rm -f "${zip_file}" "${zip_file}.part"
     drop_caches_safe
 
     status_ok "完整目录结构部署成功 (cert/, *.json, *.dat, debug.log)"
@@ -499,7 +519,7 @@ install_management_command() {
 
     if [[ "${script_synced}" != "true" ]]; then
         rm -f "${temp_script}"
-        status_warn "远程管理脚本下载受阻，跳过快捷命令在线同步"
+        status_warn "远程管理脚本同步受阻，跳过全局快捷命令更新"
     fi
 }
 
