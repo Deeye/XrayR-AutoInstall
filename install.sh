@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 
-# 版本: v1.0.6
+# XrayR 智能安装与管理脚本 (线路优化与高容错版)
+# 版本: v1.0.7
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -26,6 +26,15 @@ TEMP_DIR="${CONFIG_DIR}/.xrayr_install_tmp"
 
 IS_NAT=false
 INIT_SYSTEM=""
+
+# 加速镜像源列表 (按顺序自动轮询尝试)
+GH_PROXIES=(
+    "https://ghproxy.net/"
+    "https://mirror.ghproxy.com/"
+    "https://gh-proxy.com/"
+    "https://hub.gitmirror.com/"
+    "" # 留空代表直连 GitHub 官方源兜底
+)
 
 # -----------------------------
 # 终端颜色
@@ -50,8 +59,8 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (小内存低 I/O 版)             ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}序列化解压 · 强制 PageCache 刷盘 · 防 OOM 重启${RESET}          ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (多镜像加速 · 低延迟防掉线)   ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}断点续传 · 自动故障转移 · PageCache 智能刷盘${RESET}             ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -106,8 +115,6 @@ on_error() {
     local exit_code=$?
     echo
     status_error "脚本执行失败，退出码: ${exit_code}"
-    echo -e "  ${DIM}如果系统发生重启，请检查上一次启动的内核日志：${RESET}"
-    echo -e "  ${DIM}journalctl -b -1 -k | grep -Ei 'oom|out of memory|killed process|panic|watchdog'${RESET}"
     exit "${exit_code}"
 }
 
@@ -234,7 +241,10 @@ detect_environment() {
        [[ "${local_ip}" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
         IS_NAT=true
     else
-        public_ip="$(curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+        # 多源容错获取公网 IP，防止弱网单点超时
+        public_ip="$(curl -4 -fsS --max-time 2 https://api.ipify.org 2>/dev/null || \
+                     curl -4 -fsS --max-time 2 https://icanhazip.com 2>/dev/null || \
+                     curl -4 -fsS --max-time 2 https://ip.sb 2>/dev/null || true)"
         if [[ -n "${local_ip}" && -n "${public_ip}" && "${local_ip}" != "${public_ip}" ]]; then
             IS_NAT=true
         fi
@@ -291,6 +301,39 @@ drop_caches_safe() {
 }
 
 # -----------------------------
+# 网络弹性下载器 (支持镜像轮询与断点续传)
+# -----------------------------
+download_file_resilient() {
+    local target_path="$1"
+    local raw_url="$2"
+    local download_success=false
+
+    for proxy in "${GH_PROXIES[@]}"; do
+        local current_url="${proxy}${raw_url}"
+        local proxy_tag="${proxy:-官方源直连}"
+        
+        printf '%b\n' "  ${BLUE}▸${RESET} 尝试源: ${DIM}${proxy_tag}${RESET}"
+        
+        # -C - 支持断点续传，--retry 针对弱网丢包自动重连，超时缩短以便快速故障转移
+        if curl -4 -fL -C - --retry 3 --retry-delay 1 --connect-timeout 8 --max-time 180 \
+            -o "${target_path}" "${current_url}"; then
+            if [[ -s "${target_path}" ]]; then
+                download_success=true
+                status_ok "下载成功 [${proxy_tag}]"
+                break
+            fi
+        fi
+        status_warn "当前线路下载失败或受阻，自动切换下一镜像..."
+        rm -f "${target_path}" 2>/dev/null || true
+    done
+
+    if [[ "${download_success}" != "true" ]]; then
+        status_error "所有可用镜像下载均失败，请检查机器网络或稍后重试。"
+        exit 1
+    fi
+}
+
+# -----------------------------
 # 下载与安装（防 OOM 序列化解压）
 # -----------------------------
 download_and_extract() {
@@ -303,18 +346,7 @@ download_and_extract() {
     printf '%b\n' "  ${BLUE}▸${RESET} 下载核心资源包 ${DIM}架构: ${arch}${RESET}"
 
     drop_caches_safe
-
-    if ! curl -4 -fL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
-        -o "${zip_file}" "${raw_url}"; then
-        status_error "下载失败，请检查网络连接。"
-        exit 1
-    fi
-
-    if [[ ! -s "${zip_file}" ]]; then
-        status_error "下载文件为空。"
-        exit 1
-    fi
-
+    download_file_resilient "${zip_file}" "${raw_url}"
     drop_caches_safe
 
     printf '%b\n' "  ${BLUE}▸${RESET} 执行序列化流式解压 ${DIM}(单文件流控，防止内存暴涨重启)${RESET}"
@@ -329,15 +361,13 @@ download_and_extract() {
     file_list="$(unzip -Z1 "${zip_file}" 2>/dev/null || true)"
 
     if [[ -n "${file_list}" ]]; then
-        # 逐个文件解压，并在解压每个文件后强制 sync 刷盘，防止 PageCache 瞬间撑爆物理 RAM
         for entry in ${file_list}; do
             [[ "${entry}" == */ ]] && continue
             unzip -o -q "${zip_file}" "${entry}" -d "${CONFIG_DIR}" 2>/dev/null || true
             sync
-            sleep 0.1
+            sleep 0.05
         done
     else
-        # 兜底情况：直接解压后立刻 sync
         unzip -o -q "${zip_file}" -d "${CONFIG_DIR}"
         sync
     fi
@@ -357,7 +387,7 @@ download_and_extract() {
         chmod 600 "${CONFIG_DIR}/config.yml"
     fi
 
-    # 5. 补充确保规范目录结构 (cert/, debug.log)
+    # 5. 补充确保规范目录结构
     mkdir -p "${CONFIG_DIR}/cert"
     touch "${CONFIG_DIR}/debug.log"
 
@@ -366,7 +396,7 @@ download_and_extract() {
     chmod 700 "${CONFIG_DIR}/cert"
     chmod 644 "${CONFIG_DIR}"/*.json "${CONFIG_DIR}"/*.dat "${CONFIG_DIR}"/debug.log 2>/dev/null || true
 
-    # 7. 立即删除压缩包并彻底释放 PageCache 缓存
+    # 7. 清理压缩包与缓存
     rm -f "${zip_file}"
     drop_caches_safe
 
@@ -446,28 +476,33 @@ EOF
 }
 
 # -----------------------------
-# 安装管理命令
+# 安装管理命令 (同样走多镜像加速)
 # -----------------------------
 install_management_command() {
     printf '%b\n' "  ${BLUE}▸${RESET} 配置全局管理命令 ${BOLD}xrayr${RESET}"
 
     local temp_script="${CONFIG_DIR}/.xrayr_management_tmp"
+    local raw_script_url="https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh"
+    local script_synced=false
 
-    if curl -4 -fsSL --connect-timeout 15 --max-time 60 \
-        "https://raw.githubusercontent.com/${GITHUB_USER}/${REPO_NAME}/main/install.sh" \
-        | sed 's/\r$//' > "${temp_script}"; then
-
-        if [[ -s "${temp_script}" ]]; then
-            install -m 0755 "${temp_script}" "${SYSTEM_CMD_PATH}"
-            ln -sfn "${SYSTEM_CMD_PATH}" /usr/local/bin/XrayR
-            rm -f "${temp_script}"
-            status_ok "全局管理命令已配置"
-            return 0
+    for proxy in "${GH_PROXIES[@]}"; do
+        local current_url="${proxy}${raw_script_url}"
+        if curl -4 -fsSL --connect-timeout 5 --max-time 15 "${current_url}" | sed 's/\r$//' > "${temp_script}"; then
+            if [[ -s "${temp_script}" ]]; then
+                install -m 0755 "${temp_script}" "${SYSTEM_CMD_PATH}"
+                ln -sfn "${SYSTEM_CMD_PATH}" /usr/local/bin/XrayR
+                rm -f "${temp_script}"
+                script_synced=true
+                status_ok "全局管理命令已配置"
+                break
+            fi
         fi
-    fi
+    done
 
-    rm -f "${temp_script}"
-    status_warn "远程管理脚本下载失败，跳过快捷命令更新"
+    if [[ "${script_synced}" != "true" ]]; then
+        rm -f "${temp_script}"
+        status_warn "远程管理脚本下载受阻，跳过快捷命令在线同步"
+    fi
 }
 
 # -----------------------------
