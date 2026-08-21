@@ -2,8 +2,8 @@
 
 # ==========================================================
 # XrayR-AutoInstall
-# XrayR 智能安装与管理脚本 (线路优化与高容错版)
-# 版本: v1.0.7
+# XrayR 智能安装与管理脚本 (线路优化与重装支持版)
+# 版本: v1.0.8
 # 支持: Ubuntu / Debian / CentOS / Rocky / Alma / Fedora / Arch / openSUSE / Alpine
 # ==========================================================
 
@@ -59,8 +59,8 @@ show_line() {
 
 show_header() {
     printf '%b\n' "${CYAN}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (多镜像加速 · 低延迟防掉线)   ${CYAN}│${RESET}"
-    printf '%b\n' "${CYAN}│${RESET} ${DIM}断点续传 · 自动故障转移 · PageCache 智能刷盘${RESET}             ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${BOLD}${WHITE}XrayR${RESET} ${DIM}·${RESET} ${GREEN}智能安装与管理面板${RESET} (多镜像加速 · 线路高容错版)    ${CYAN}│${RESET}"
+    printf '%b\n' "${CYAN}│${RESET} ${DIM}断点续传 · 自动故障转移 · 支持一键无损重装${RESET}                ${CYAN}│${RESET}"
     printf '%b\n' "${CYAN}╰────────────────────────────────────────────────────────────────────╯${RESET}"
 }
 
@@ -241,7 +241,6 @@ detect_environment() {
        [[ "${local_ip}" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
         IS_NAT=true
     else
-        # 多源容错获取公网 IP，防止弱网单点超时
         public_ip="$(curl -4 -fsS --max-time 2 https://api.ipify.org 2>/dev/null || \
                      curl -4 -fsS --max-time 2 https://icanhazip.com 2>/dev/null || \
                      curl -4 -fsS --max-time 2 https://ip.sb 2>/dev/null || true)"
@@ -314,7 +313,6 @@ download_file_resilient() {
         
         printf '%b\n' "  ${BLUE}▸${RESET} 尝试源: ${DIM}${proxy_tag}${RESET}"
         
-        # -C - 支持断点续传，--retry 针对弱网丢包自动重连，超时缩短以便快速故障转移
         if curl -4 -fL -C - --retry 3 --retry-delay 1 --connect-timeout 8 --max-time 180 \
             -o "${target_path}" "${current_url}"; then
             if [[ -s "${target_path}" ]]; then
@@ -476,7 +474,7 @@ EOF
 }
 
 # -----------------------------
-# 安装管理命令 (同样走多镜像加速)
+# 安装管理命令
 # -----------------------------
 install_management_command() {
     printf '%b\n' "  ${BLUE}▸${RESET} 配置全局管理命令 ${BOLD}xrayr${RESET}"
@@ -506,11 +504,17 @@ install_management_command() {
 }
 
 # -----------------------------
-# 安装流程
+# 安装与重装流程
 # -----------------------------
 show_install_process() {
+    local is_reinstall="${1:-false}"
     show_banner
-    section_title "安装 XrayR" "开始执行全自动部署流程"
+    
+    if [[ "${is_reinstall}" == "true" ]]; then
+        section_title "重新安装 XrayR" "停止当前服务并覆盖核心文件"
+    else
+        section_title "安装 XrayR" "开始执行全自动部署流程"
+    fi
 
     echo -e " ${BOLD}${CYAN}[1/4]${RESET} ${WHITE}初始化系统运行环境${RESET}"
     show_line
@@ -524,7 +528,7 @@ show_install_process() {
     mkdir -p "${CONFIG_DIR}"
 
     srv_stop
-    status_ok "配置目录准备完成"
+    status_ok "配置目录与服务状态准备完成"
 
     echo
     echo -e " ${BOLD}${CYAN}[3/4]${RESET} ${WHITE}部署完整程序包与资源文件${RESET}"
@@ -544,13 +548,22 @@ show_install_process() {
 
     echo
     printf '%b\n' "${GREEN}${BOLD}╭────────────────────────────────────────────────────────────────────╮${RESET}"
-    printf '%b\n' "${GREEN}${BOLD}│${RESET}  🎉 XrayR 安装与部署已成功完成！                              ${GREEN}${BOLD}│${RESET}"
+    if [[ "${is_reinstall}" == "true" ]]; then
+        printf '%b\n' "${GREEN}${BOLD}│${RESET}  🎉 XrayR 重新安装完成！原配置文件已自动保留并恢复。         ${GREEN}${BOLD}│${RESET}"
+    else
+        printf '%b\n' "${GREEN}${BOLD}│${RESET}  🎉 XrayR 安装与部署已成功完成！                              ${GREEN}${BOLD}│${RESET}"
+    fi
     printf '%b\n' "${GREEN}${BOLD}╰────────────────────────────────────────────────────────────────────╯${RESET}"
     echo
     echo -e "  ${DIM}以后可直接输入${RESET} ${BOLD}${CYAN}xrayr${RESET} ${DIM}打开管理面板${RESET}"
 
-    sleep 2
-    show_manage_menu
+    if [[ "${is_reinstall}" == "true" ]]; then
+        srv_restart || true
+        pause_screen
+    else
+        sleep 2
+        show_manage_menu
+    fi
 }
 
 # -----------------------------
@@ -600,7 +613,8 @@ show_manage_menu() {
         echo -e "  ${GREEN}4${RESET}  查看实时日志"
 
         echo
-        printf '%b\n' "${BOLD}${WHITE}配置管理${RESET}"
+        printf '%b\n' "${BOLD}${WHITE}配置与维护${RESET}"
+        echo -e "  ${GREEN}5${RESET}  重新安装 / 覆盖更新 ${DIM}(保留原有 config.yml)${RESET}"
         echo -e "  ${GREEN}6${RESET}  编辑配置文件"
 
         echo
@@ -609,7 +623,7 @@ show_manage_menu() {
         echo -e "  ${RED}0${RESET}  退出面板"
 
         show_line
-        read -r -p "  请输入选项 [0/1/2/3/4/6/10]: " menu_num
+        read -r -p "  请输入选项 [0/1/2/3/4/5/6/10]: " menu_num
         echo
 
         case "${menu_num:-}" in
@@ -630,6 +644,13 @@ show_manage_menu() {
                 ;;
             4)
                 srv_logs
+                ;;
+            5)
+                echo
+                read -r -p "  确定要重新安装 XrayR 吗？(原有配置会自动保留) [y/N]: " confirm_reinstall
+                if [[ "${confirm_reinstall}" =~ ^[Yy]$ ]]; then
+                    show_install_process true
+                fi
                 ;;
             6)
                 if [[ -f "${CONFIG_DIR}/config.yml" ]]; then
@@ -686,7 +707,7 @@ main() {
     if [[ -x "${BINARY_PATH}" && -d "${CONFIG_DIR}" ]]; then
         show_manage_menu
     else
-        show_install_process
+        show_install_process false
     fi
 }
 
